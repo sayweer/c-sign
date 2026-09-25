@@ -1,0 +1,17 @@
+[package]
+name = "sep53c-verifier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Canonical, admin-less verifier contract for C-Sign (SEP-53 profile for contract accounts)"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
