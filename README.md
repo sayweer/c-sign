@@ -3,6 +3,8 @@
 **Working name:** SEP-53C, a "SEP-53 profile for contract accounts"
 **Status:** early development. The verifier contract compiles to wasm and passes its 5 unit tests. Nothing is deployed yet.
 
+Read the [project overview](C-Sign-Overview.pdf) first, then [docs/SPEC.md](docs/SPEC.md).
+
 C-Sign lets a Stellar contract account (a `C…` address: passkey wallets, multisig accounts, agent wallets with spending policies) sign an arbitrary, human-readable message, and lets anyone verify that signature against the account's **current** on-chain rules, without submitting a transaction and without paying a fee.
 
 It is Stellar's counterpart to ERC-1271, with one difference: wallets do not implement anything per account, because every Stellar contract account already enforces its rules in `__check_auth`.
