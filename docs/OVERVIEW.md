@@ -1,13 +1,13 @@
 # C-Sign: Signed Messages for Stellar Contract Accounts
 
-**Project overview** · 25 September 2026 · Seyit ([@sayweer](https://github.com/sayweer))
+**Project overview** · 26 September 2026 · Seyit ([@sayweer](https://github.com/sayweer))
 
 | | |
 |---|---|
 | **Status** | Early development. Verifier contract written and unit-tested, nothing deployed yet. |
 | **Repository** | [github.com/sayweer/c-sign](https://github.com/sayweer/c-sign) |
 | **Network** | Stellar testnet first, mainnet later |
-| **Working name** | SEP-53C, a "SEP-53 profile for contract accounts" |
+| **Draft SEP** | "Signed Messages for Contract Accounts", the counterpart of SEP-53 for contract accounts |
 
 ## What it is
 
@@ -15,7 +15,7 @@ C-Sign lets any Stellar contract account (a `C…` address: passkey wallets, mul
 
 It is Stellar's counterpart to Ethereum's ERC-1271, with one advantage: wallets do not have to write any code per account, because Stellar contract accounts already enforce their rules on-chain.
 
-The project has three parts: a short specification, a tiny canonical verifier contract, and a TypeScript library that wallets and servers can use.
+The project has three parts: a draft SEP, a tiny reference verifier contract that anyone can deploy, and a TypeScript library that wallets and servers can use.
 
 ## The problem
 
@@ -48,18 +48,24 @@ On 24 September 2026 I posted the C-Sign design as a [comment on stellar-protoco
 
 > "Hey @sayweer, thanks for taking interest in this topic. Lets move discussion about the potential solution for contract-account message signing to a different github issue. Can you create one, include the description of the solution you just proposed, and reference this issue so its linked?"
 
-SDF did not close the question or point to an existing solution. It asked for a dedicated issue. The draft specification in this repository ([docs/SPEC.md](SPEC.md)) is written to be that issue.
+SDF did not close the question or point to an existing solution. I opened the dedicated issue, [stellar-protocol#2027](https://github.com/stellar/stellar-protocol/issues/2027), the next day. Jake replied there on 25 September:
+
+- The outcome should be **a new SEP**, the counterpart of SEP-53, with a **separate SEP-43 change** proposed in parallel and merged once the new SEP is Final.
+- There should be **no "canonical" verifier contract**; wallets should be free to choose who owns the verifier.
+- He asked the SEP-45 authors (Leigh McCulloch and Marcelo Salloum) to weigh in on the nonce question.
+
+The design in this repository has been updated accordingly: [docs/SPEC.md](SPEC.md) is now written as a new SEP following the SEP template, the verifier is trusted by its code hash instead of a fixed address, and the SEP-43 change lives in its own document.
 
 ## How it works
 
 C-Sign attaches message signing to the authorization system Stellar already has.
 
-1. **Readable message.** The dapp builds a structured message, for example `{ domain: "vote.example.com", statement: "Proposal #12 = YES", challenge, issued_at }`. The wallet shows it as plain text. Nothing is signed blind.
-2. **Signing.** The wallet signs a `SorobanAuthorizationEntry` whose root call is `verify_message(account, message)` on a small, admin-less, canonical verifier contract, with no sub-calls. Network id, nonce and expiration are already inside the signed preimage, and V2 address credentials ([CAP-71](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0071.md)) bind the signature to one account.
+1. **Readable message.** The dapp asks for a statement, for example `"Proposal #12 = YES"`, with a one-time nonce. The **wallet** adds the dapp's domain from the requesting origin, so a phishing site cannot obtain a signature addressed to another site. The message is a small map (`domain`, `statement`, `nonce`, `issued_at`, `version`) that the wallet shows as plain text. Nothing is signed blind.
+2. **Signing.** The wallet signs a `SorobanAuthorizationEntry` whose root call is `verify_message(account, message)` on an instance of a small, admin-less reference verifier contract, with no sub-calls. Network id, nonce and expiration are already inside the signed preimage, and V2 address credentials ([CAP-71](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0071.md)) bind the signature to one account.
 3. **No side effects.** `verify_message` runs `account.require_auth()` and then always fails with a reserved error code, `AUTH_OK`. If someone submits a published signature on-chain, the transaction fails and the account's nonce is not consumed.
-4. **Verification.** The relying party runs `simulateTransaction` with `authMode: "enforce"` and accepts only `AUTH_OK`. The network executes the account's own `__check_auth`: are the signers still authorized, is the threshold met, does the policy allow it? No transaction is submitted, no fee is paid, and the answer reflects the account's rules **today**. Replay protection off-chain comes from the relying party's one-time `challenge`, as in Sign-In With Ethereum.
+4. **Verification.** The relying party rebuilds the expected call, checks that the verifier instance runs the reference code (by its Wasm hash), then runs `simulateTransaction` with `authMode: "enforce"` and accepts only `AUTH_OK` raised by that instance. The network executes the account's own `__check_auth`: are the signers still authorized, is the threshold met, does the policy allow it? No transaction is submitted, no fee is paid, and the answer reflects the account's rules **today**. Replay protection off-chain comes from the relying party's one-time `nonce`, as in Sign-In With Ethereum.
 
-An **anchored mode** (`anchor_message`) runs the same authorization and then emits an on-chain event with the message hash, for cases that need a durable proof.
+**No canonical address.** Anyone can deploy the reference verifier. Wallets and relying parties trust an instance only if its executable hash matches the published one. Without that check, someone could deploy a fake "verifier" that returns the success code without asking the account at all; with it, ownership of the contract stops mattering.
 
 ### Why this shape works on Stellar
 
@@ -76,10 +82,10 @@ An **anchored mode** (`anchor_message`) runs the same authorization and then emi
 ## What exists when C-Sign is done
 
 1. **A standard.** "Signed Messages for Contract Accounts" as a SEP draft in stellar-protocol, and a defined `signMessage` behavior for `C…` addresses in SEP-43 with a single return format. Today that behavior is undefined.
-2. **One canonical verifier contract per network**, on testnet and mainnet. Admin-less, immutable, about 60 lines, audited. Every wallet and every verifier recognizes its contract id, so a wallet can render the request as "sign this message", not as an opaque contract call.
+2. **A reference verifier with a published Wasm hash**, deployed on testnet and mainnet by whoever needs it. Admin-less, immutable, one function, audited. Wallets and verifiers recognize it by its hash, so a wallet can render the request as "sign this message", not as an opaque contract call.
 3. **A TypeScript library on npm.** `signMessage` and `verifyMessage` work the same for `G…` accounts (SEP-53 underneath) and `C…` accounts (enforcing simulation underneath). Adapters for OpenZeppelin smart accounts, passkey-kit and multisig accounts; a helper for wallets that build the entry themselves; Express and Next.js middleware for servers.
 4. **Integrations.** A Stellar Wallets Kit module, pull requests to `stellar/smart-account-kit` and to passkey wallets such as SoroPass, an x402 sign-in-with-x verifier for Stellar and a CAIP-122 `stellar` profile, so Stellar joins EVM and Solana in the cross-chain sign-in ecosystem.
-5. **A public conformance suite.** Positive test vectors for every supported account type and negative vectors (removed signer, rotated signer, expired signature, wrong network, wrong domain, tampered message, reused challenge, policy rejection, extra sub-call, cross-account replay, displayed text not matching signed text). Any wallet can run it and prove compatibility.
+5. **A public conformance suite.** Positive test vectors for every supported account type and negative vectors (removed signer, rotated signer, expired signature, wrong network, wrong domain, tampered message, reused nonce, policy rejection, extra sub-call, cross-account replay, displayed text not matching signed text). Any wallet can run it and prove compatibility.
 6. **A live demo and wallet display guidance**, with the signer page and the verifier service on different origins.
 
 ### What changes for each side
@@ -93,7 +99,7 @@ An **anchored mode** (`anchor_message`) runs the same authorization and then emi
 
 Alice holds an OpenZeppelin smart account controlled by two passkeys (phone and laptop). A governance dApp asks her to vote off-chain on "Proposal #12". Her wallet shows the text, she confirms with Face ID, and the dApp sends the signed entry to the dApp's server. The server calls `verifyMessage`: it checks the structure, runs an enforcing simulation against a public RPC, and gets `AUTH_OK` back in about one second. No transaction, no fee. The vote is recorded.
 
-A week later Alice loses her phone and removes that passkey from the account. Every signature that phone produced before now fails verification, because the account's current rules no longer include it. For the one vote she wants preserved forever, she signs it again in anchored mode, and the event on-chain becomes a permanent proof.
+A week later Alice loses her phone and removes that passkey from the account. Every signature that phone produced before now fails verification, because the account's current rules no longer include it. The vote the server already recorded stays recorded; what changes is that nobody can produce new signatures with the lost phone.
 
 The same afternoon Alice pays for an x402-metered API with her smart account. The next time she calls it, the server asks her to sign in with x; her wallet signs a C-Sign message, the server verifies it and recognizes her as a returning payer. No new payment, no session cookie, no Stellar-specific code in the x402 server beyond the C-Sign verifier.
 
@@ -105,8 +111,8 @@ The same afternoon Alice pays for an x402-metered API with her smart account. Th
 
 ## What is built today
 
-- **`contracts/verifier`**: the `sep53c-verifier` Soroban contract (Rust, soroban-sdk 28) with `verify_message` and `anchor_message`. About 60 lines, no admin, no storage. It compiles to wasm and passes 5 unit tests: exact argument binding, tampered-message rejection, unauthorized-call rejection, event emission. Not deployed yet.
-- **`docs/SPEC.md`**: draft specification, ready to be posted as the dedicated stellar-protocol issue SDF asked for.
+- **`contracts/verifier`**: the reference verifier (Rust, soroban-sdk 28), a single `verify_message` function, no admin, no storage. The Wasm is 1,475 bytes and builds reproducibly; its hash is pinned in the repository and checked in CI. 5 unit tests cover exact argument binding, tampered messages, signatures for another account, unauthorized calls and forward-compatible message keys. Not deployed yet.
+- **`docs/SPEC.md`**: the draft SEP "Signed Messages for Contract Accounts", written to the SEP template, with the verification algorithm, wallet rules, design rationale and security concerns. **`docs/SEP-43-CHANGE.md`**: the separate wallet-interface proposal.
 - **`docs/ROADMAP.md`**: how the pieces above get built, in three phases: testnet (spec, verifier, library, demo and conformance suite), consumers (x402 sign-in-with-x, middleware, wallet integrations), then the SEP pull request and mainnet.
 
 ## Main risks
@@ -114,7 +120,7 @@ The same afternoon Alice pays for an x402-metered API with her smart account. Th
 | Risk | How it is handled |
 |---|---|
 | The signer side differs by account type: OpenZeppelin v0.9 changed its auth digest, passkey-kit and smart-account-kit are not drop-in compatible, `signAuthEntry` means different things in different wallets. | One adapter per account type with its own test vectors; the most common type (OpenZeppelin via smart-account-kit) is validated first, before anything else is built; delegated signers (CAP-71) come later. |
-| The `AUTH_OK` revert pattern is new. | Verified against the host source and RPC error format; measured on testnet first; a non-reverting fallback is documented. |
+| The `AUTH_OK` revert pattern is new on Stellar. | The host rolls the nonce back on a failed call (verified in the host source); the same idea was suggested for SEP-45 and set aside only because the server builds entries there; testnet transcripts come first. An RP-bound, non-reverting variant is documented as a fallback. |
 | The cheapest answer is "reject `signMessage` on C addresses", and some teams do that today. | The design is on SDF's table; a pull request to `stellar/smart-account-kit` turns substitution risk into partnership. |
 | Off-chain verification trusts the RPC. | Same model as ERC-1271 with `eth_call`; documented, with own-RPC and two-provider cross-check as options. |
 
@@ -122,5 +128,6 @@ The same afternoon Alice pays for an x402-metered API with her smart account. Th
 
 - Repository: [github.com/sayweer/c-sign](https://github.com/sayweer/c-sign)
 - Draft specification: [docs/SPEC.md](SPEC.md) · Roadmap: [docs/ROADMAP.md](ROADMAP.md)
-- SDF issue: [stellar-protocol#1928](https://github.com/stellar/stellar-protocol/issues/1928)
+- SDF issues: [stellar-protocol#2027](https://github.com/stellar/stellar-protocol/issues/2027) (this proposal) · [#1928](https://github.com/stellar/stellar-protocol/issues/1928) (origin)
+- Wallet interface change: [docs/SEP-43-CHANGE.md](SEP-43-CHANGE.md)
 - Standards referenced: SEP-53, SEP-43, SEP-45, CAP-71

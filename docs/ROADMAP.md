@@ -2,65 +2,61 @@
 
 Everything in the first phase runs on Stellar **testnet**. No checkpoint depends on mainnet, on an institution, or on an external maintainer's approval.
 
+## Done
+
+- Design comment on [#1928](https://github.com/stellar/stellar-protocol/issues/1928#issuecomment-5823338114) and dedicated issue [#2027](https://github.com/stellar/stellar-protocol/issues/2027), as SDF asked.
+- Draft SEP "Signed Messages for Contract Accounts" ([SPEC.md](SPEC.md)) following the SEP template, and the separate SEP-43 proposal ([SEP-43-CHANGE.md](SEP-43-CHANGE.md)).
+- Reference verifier: one function, no admin, no storage, message as a map; 5 unit tests; reproducible Wasm with a pinned hash checked in CI.
+
 ## Phase 1: first 30 days
 
-### Week 1: specification v0 and go/no-go
+### Week 1: testnet evidence (go/no-go)
 
-- Publish the draft profile ([SPEC.md](SPEC.md)) as a dedicated stellar-protocol issue linked from #1928, as SDF requested.
-- Go/no-go test against public testnet RPC with three account types: (a) smart-account-kit passkey wallet (OpenZeppelin smart account, Default rule), (b) OZ 2-of-3 ed25519 multisig, (c) passkey-kit wallet. For each:
-  1. does a V2 `verify_message` entry pass `simulateTransaction(authMode: "enforce")` and is the `AUTH_OK` code readable from the result?
-  2. when the same entry is submitted on-chain, does the transaction fail without consuming the nonce, and does the next simulation still pass?
-  3. does `anchor_message` execute and emit the event?
-  4. what is the largest `statement` a policy-enabled OZ account can carry under the event size limit?
-- Decision rule: if (a) fails, work stops and the design is revisited. If `AUTH_OK` cannot be read reliably, `verify_message` is left non-reverting and the griefing risk is documented. If (b) or (c) fails, that account type is dropped from scope and noted.
+- Deploy two instances of the reference verifier (to show there is no canonical one), extend their TTL, publish ids in the README. A one-command script redeploys after testnet resets.
+- Accounts: OpenZeppelin smart account with one ed25519 signer, OpenZeppelin 2-of-3 with a threshold policy, and a minimal ed25519 account.
+- Experiments, each recorded with transaction hashes:
+  1. **Valid signature** verifies as `valid` for each account type.
+  2. **On-chain submission** of a signature fails, the account's nonce is not consumed, and the signature still verifies. The same experiment with a non-reverting verifier shows the nonce being burned.
+  3. **Hash pinning**: a fake verifier that returns the success code without calling `require_auth` is accepted without pinning and rejected with it.
+  4. **Negative cases** are `invalid`: removed signer, wrong domain, tampered message, expired signature, reused nonce, extra sub-invocation, V1 credentials.
+  5. **Size limit**: the largest statement a policy-enabled OpenZeppelin account accepts.
+- **Gate:** if experiment 2 fails (the nonce is consumed), work stops and the design is revisited.
 
-### Week 2: verifier contract
+### Week 2: TypeScript library
 
-- `sep53c-verifier`: `verify_message` and `anchor_message`, no admin, no storage (this repository, `contracts/verifier`).
-- Unit tests with soroban-sdk testutils; integration tests against real OZ account and passkey-kit wasm.
-- Testnet deploy, TTL extension of code and instance (`stellar contract extend … --ledgers-to-extend 3110000`), contract id in the README. A one-command redeploy script guards against testnet resets. A weekly CI health job simulates a fixed vector and alerts on archival.
+- `verifyMessage`: structural checks, invocation rebuild, verifier hash pinning, enforcing simulation and the three-state decision (`valid` / `invalid` / `inconclusive`).
+- `buildMessageAuthEntry` and signing helpers for OpenZeppelin smart accounts and simple ed25519 accounts; SEP-53 for `G…` accounts.
+- A thin adapter with the shape x402's sign-in-with-x expects: `({ address, message, signature }) => Promise<boolean>`.
 
-### Week 3: TypeScript library
+### Week 3: conformance and demo
 
-- `signMessage`: SEP-53 for G accounts; adapters for smart-account-kit/OZ (v0.9 and 0.7.x digests), passkey-kit and OZ multisig for C accounts; `buildMessageAuthEntry()` for wallet implementers.
-- `verifyMessage`: SEP-53 for G; structural checks + enforcing simulation + `AUTH_OK` check + `restorePreamble` reporting for C.
-- Express/Next.js verification middleware. Published on npm, default network testnet.
+- Conformance suite in CI against testnet with the positive and negative vectors above.
+- Two-origin demo: a signer page and an independent verifier service on different origins. Core scene: sign, verify, remove the signer, verify again (`valid` then `invalid`).
 
-### Week 4: demo, conformance, ecosystem
+### Week 4: specification and ecosystem
 
-- Two-origin demo: signer page and independent verifier API on different origins. Account matrix: G, OZ passkey C, OZ 2-of-3 multisig C, passkey-kit C.
-- Conformance suite in CI with at least 12 negative vectors: removed signer, rotated signer, expired signature, wrong network, wrong domain, tampered message, reused challenge, policy rejection, unauthorized context rule, extra sub-invocation, cross-account replay with a V1 credential, displayed message ≠ signed message. Plus the positive griefing test: an ephemeral signature submitted on-chain is not invalidated.
-- Design comments on #1928 and Stellar Wallets Kit #95 / #112; at least one pull request to a kit or SDK repository, `stellar/smart-account-kit` first.
-
-## Deliverables
-
-1. Draft specification (Markdown, stellar-protocol issue).
-2. `sep53c-verifier` source + testnet contract id.
-3. npm package (core, adapters, verify, middleware) + README.
-4. Two-origin demo on testnet + short video.
-5. Conformance matrix + negative vectors + CI report.
-6. Go/no-go report: week-1 findings, supported account types, message size limit, griefing test result.
-7. Links to PRs and design comments.
+- Update the draft SEP with measured limits and test vectors; open the SEP pull request once the discussion is settled.
+- Design comments on Stellar Wallets Kit #95 and #112; at least one pull request to a kit or SDK repository.
 
 ## Phase 1 is done when
 
-1. A canonical, admin-less `sep53c-verifier` contract is deployed on Stellar testnet. Its contract id and the hash of one `anchor_message` transaction are published in the README, together with the ledger its TTL was extended to.
-2. An open-source TypeScript library is published on npm with `signMessage` and `verifyMessage` for G accounts (SEP-53) and C accounts (enforcing simulation, no transaction submitted), with adapters for OpenZeppelin smart accounts via smart-account-kit, passkey-kit and OZ multisig.
-3. A public conformance suite runs in CI on testnet. All positive cases pass for at least 3 C-account types plus G accounts, and at least 12 negative vectors are rejected. A test shows that submitting an ephemeral signature on-chain does not invalidate it.
-4. Off-chain verification of a C-account signature completes in under 2 seconds against the public testnet RPC, measured as the median of 20 runs and recorded in the CI log.
-5. The draft specification is published as a stellar-protocol issue linked from #1928. Design comments are posted on Stellar Wallets Kit #95 and #112, and at least one pull request is opened to a wallet-kit or SDK repository.
-6. A two-origin demo is live on testnet with a short walkthrough video.
+1. Two instances of the reference verifier are deployed on testnet, their executable hash equals `contracts/verifier/WASM_HASH`, and their ids and TTL are in the README.
+2. A TypeScript library with `verifyMessage` and signing helpers is in this repository, with unit tests and testnet integration tests.
+3. The experiments above are recorded with transaction hashes, including the on-chain submission that leaves the nonce unconsumed.
+4. Verification of a contract-account signature completes in under 2 seconds against the public testnet RPC (median of 20 runs).
+5. The draft SEP includes measured limits and test vectors.
+6. The two-origin demo runs on testnet with a short walkthrough video.
 
-Maintainer replies, merged PRs, SEP acceptance and mainnet are not part of phase 1; each depends on an external actor.
+Maintainer replies, merged pull requests, SEP acceptance and mainnet are not part of phase 1; each depends on an external actor.
 
-## Biggest risk and gate
+## Biggest risk
 
-The signer side differs by account type: OZ v0.9 moved to an account-bound `AuthDigestPreimage` (breaking for off-chain signing), passkey-kit and smart-account-kit are not drop-in compatible, and `signAuthEntry` means different things in different wallets. The week-1 gate is: the smart-account-kit (OZ, Default rule) account accepts a V2 `verify_message` entry in enforcing simulation and `AUTH_OK` is readable. Delegated signers (CAP-71) are out of phase 1.
+Signing differs by account type: OpenZeppelin accounts sign a digest that commits to `context_rule_ids`, other accounts sign the raw payload, and kits expose `signAuthEntry` differently. The SEP standardizes only the entry shape and its verification, and verification by simulation is independent of those formats. Delegated signers are out of phase 1.
 
 ## After phase 1
 
-- **Phase 2, consumer layer:** CAIP-122 `stellar` profile PR, an x402 sign-in-with-x verifier for Stellar (G: SEP-53, C: C-Sign), server-side packages and an off-chain approval example.
-- **Phase 3, standard and distribution:** SEP draft PR, wallet display guidance, wallet-side reference implementation, Stellar Wallets Kit shim, anchored-mode indexer example, public conformance matrix.
-- **Mainnet:** mainnet verifier + small audit + threat model; at least two merged wallet/kit integrations; usage metrics.
+- **Consumer layer:** CAIP-122 `stellar` profile, an x402 sign-in-with-x verifier for Stellar, server middleware, an off-chain approval example.
+- **Standard and distribution:** SEP-43 pull request, wallet display guidance, a wallet-side reference implementation, a Stellar Wallets Kit module, counterfactual (not yet deployed) accounts.
+- **Mainnet:** instances on mainnet, a small audit and threat model, wallet and kit integrations, usage metrics.
 
 SEP acceptance is an undated external event and is not a condition of any phase.

@@ -1,47 +1,28 @@
 #![no_std]
-//! `sep53c-verifier`: the canonical, admin-less, storage-less verifier contract
-//! for C-Sign, a SEP-53 profile for contract (C-address) accounts.
+//! `sep53c-verifier`: the reference verifier contract for C-Sign, "Signed
+//! Messages for Contract Accounts".
 //!
 //! A C-Sign signature is a `SorobanAuthorizationEntry` whose root invocation is
-//! `verify_message(account, msg)` (ephemeral mode) or `anchor_message(account, msg)`
-//! (anchored mode) on this contract, with no sub-invocations. The account's own
-//! `__check_auth` decides validity, so existing smart accounts need no upgrade.
+//! `verify_message(account, msg)` on an instance of this contract, with no
+//! sub-invocations and V2 address credentials. The account's own `__check_auth`
+//! decides validity, so existing contract accounts need no upgrade.
+//!
+//! There is no canonical instance. Anyone may deploy this Wasm; wallets and
+//! relying parties trust an instance only after checking that its executable
+//! Wasm hash equals the hash published with the specification. The contract has
+//! no admin, no storage and no upgrade path, so that check is done once per
+//! instance.
 
-use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, xdr::ToXdr, Address,
-    Bytes, BytesN, Env, String,
-};
-
-/// A human-readable message. Wallets display it as-is; nothing is signed blind.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SignedMessage {
-    /// Relying-party domain, e.g. `vote.example.com`.
-    pub domain: String,
-    /// What the user agrees to, e.g. `Proposal #12 = YES`.
-    pub statement: String,
-    /// One-time challenge chosen by the relying party (off-chain replay protection).
-    pub challenge: Bytes,
-    /// Unix time (seconds) at which the message was issued.
-    pub issued_at: u64,
-}
+use soroban_sdk::{contract, contracterror, contractimpl, Address, Env, Map, Symbol, Val};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    /// Reserved code that `verify_message` returns once authorization succeeded.
-    /// Off-chain verifiers treat *only* this code as "signature valid".
+    /// Returned by `verify_message` once authorization succeeded. Off-chain
+    /// verifiers treat only this error, raised by a pinned verifier instance,
+    /// as "signature valid".
     AuthOk = 1,
-}
-
-/// Emitted by `anchor_message`. Topics: `["anchored", account]`. Data: `sha256(xdr(msg))`.
-#[contractevent(topics = ["anchored"], data_format = "single-value")]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Anchored {
-    #[topic]
-    pub account: Address,
-    pub message_hash: BytesN<32>,
 }
 
 #[contract]
@@ -49,34 +30,22 @@ pub struct Verifier;
 
 #[contractimpl]
 impl Verifier {
-    /// Ephemeral mode.
-    ///
     /// Runs the account's `__check_auth` for the invocation
-    /// `verify_message(account, msg)` and then always fails with [`Error::AuthOk`].
-    /// Because the call never succeeds, submitting a published signature on-chain
-    /// fails the transaction and does not consume the nonce. The signature stays
-    /// valid for off-chain verification through enforcing simulation.
-    pub fn verify_message(_env: Env, account: Address, msg: SignedMessage) -> Result<(), Error> {
-        // `msg` is part of the authorized arguments; it needs no further handling here.
+    /// `verify_message(account, msg)` and then always fails with
+    /// [`Error::AuthOk`].
+    ///
+    /// `msg` is the human-readable message as a symbol-keyed map. Its keys are
+    /// defined by the specification, not by this contract: the contract never
+    /// reads it, so new optional keys never change this Wasm or its hash. `msg`
+    /// is still part of the authorized arguments, so the signature covers it.
+    ///
+    /// Because the call never succeeds, a published signature submitted
+    /// on-chain fails the transaction, the host rolls the nonce back, and the
+    /// signature stays verifiable off-chain through enforcing simulation.
+    pub fn verify_message(_env: Env, account: Address, msg: Map<Symbol, Val>) -> Result<(), Error> {
         let _ = msg;
         account.require_auth();
         Err(Error::AuthOk)
-    }
-
-    /// Anchored mode.
-    ///
-    /// Runs the account's `__check_auth`, then publishes the event
-    /// `("anchored", account) -> sha256(xdr(msg))` as a durable on-chain proof
-    /// and returns that hash.
-    pub fn anchor_message(env: Env, account: Address, msg: SignedMessage) -> BytesN<32> {
-        account.require_auth();
-        let hash: BytesN<32> = env.crypto().sha256(&msg.to_xdr(&env)).to_bytes();
-        Anchored {
-            account,
-            message_hash: hash.clone(),
-        }
-        .publish(&env);
-        hash
     }
 }
 

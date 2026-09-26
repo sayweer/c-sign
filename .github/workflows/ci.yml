@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins rustc 1.96.1 and the wasm32v1-none target.
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      # The CLI version is embedded in the Wasm metadata (`cliver`), so it is
+      # part of the reproducible build and must match the pinned hash.
+      - name: Install stellar-cli 27.0.0
+        uses: stellar/stellar-cli@v27.0.0
+
+      - name: Unit tests
+        run: cargo test --locked
+
+      - name: Build Wasm
+        run: stellar contract build --locked
+
+      - name: Check reproducible Wasm hash
+        run: |
+          expected=$(cat contracts/verifier/WASM_HASH)
+          actual=$(stellar contract info hash --wasm target/wasm32v1-none/release/sep53c_verifier.wasm)
+          echo "expected: $expected"
+          echo "actual:   $actual"
+          test "$expected" = "$actual"

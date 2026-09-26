@@ -1,63 +1,57 @@
 # C-Sign: signed messages for Stellar contract accounts
 
-**Working name:** SEP-53C, a "SEP-53 profile for contract accounts"
-**Status:** early development. The verifier contract compiles to wasm and passes its 5 unit tests. Nothing is deployed yet.
+**Status:** draft specification and reference verifier. The verifier builds reproducibly and passes its unit tests. Not deployed yet.
 
-Read the [project overview](C-Sign-Overview.pdf) first, then [docs/SPEC.md](docs/SPEC.md).
+Read the [project overview](C-Sign-Overview.pdf) first, then the [draft specification](docs/SPEC.md).
 
-C-Sign lets a Stellar contract account (a `C…` address: passkey wallets, multisig accounts, agent wallets with spending policies) sign an arbitrary, human-readable message, and lets anyone verify that signature against the account's **current** on-chain rules, without submitting a transaction and without paying a fee.
-
-It is Stellar's counterpart to ERC-1271, with one difference: wallets do not implement anything per account, because every Stellar contract account already enforces its rules in `__check_auth`.
-
-## Why
-
-- [SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md) (message signing) covers only classic `G…` keypairs.
-- [SEP-43](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0043.md) (wallet interface) leaves `signMessage` undefined for contract accounts. In [stellar-protocol#1928](https://github.com/stellar/stellar-protocol/issues/1928) SDF asked for either an explicit "undefined" or a concrete approach. C-Sign is that approach.
-- In practice, wallets today either throw on `signMessage` for C addresses or return incompatible ad-hoc WebAuthn envelopes that verify a key, not the account. A key that was removed from the account still produces a "valid" signature.
+C-Sign lets a Stellar contract account (a `C…` address: passkey wallets, multisig accounts, agent wallets with spending policies) sign a human-readable message, and lets anyone verify that signature against the account's **current** on-chain rules, without submitting a transaction and without paying a fee. It is the counterpart of [SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md) for contract accounts, discussed in [stellar-protocol#2027](https://github.com/stellar/stellar-protocol/issues/2027).
 
 ## How it works
 
-1. **Readable message.** The dapp builds `SignedMessage { domain, statement, challenge, issued_at }`. The wallet shows it as text. Nothing is signed blind.
-2. **Signing.** The wallet signs a `SorobanAuthorizationEntry` whose root invocation is `verify_message(account, msg)` on the canonical verifier contract, with no sub-invocations and with V2 address credentials ([CAP-71](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0071.md)). Network id, nonce and expiration are already part of the signed preimage.
-3. **No side effects.** `verify_message` calls `account.require_auth()` and then always fails with the reserved error `AUTH_OK`. Submitting a published signature on-chain fails the transaction and does not consume the nonce.
-4. **Verification.** The relying party runs `simulateTransaction` with `authMode: "enforce"` and accepts only `AUTH_OK`. The account's own `__check_auth` decides, using its current signers, thresholds and policies. Off-chain replay protection comes from the relying party's one-time `challenge`, as in SIWE.
+1. **The relying party asks for a message.** It gives a statement and a one-time nonce. The **wallet** fills in the relying party's domain from the requesting origin, so a site cannot obtain a signature addressed to another site.
+2. **The wallet signs an authorization entry.** The account authorizes exactly one call, `verify_message(account, msg)`, on an instance of the reference verifier contract. No sub-calls, V2 address credentials. The wallet shows the domain and statement decoded from that entry.
+3. **The verifier never succeeds.** It calls `account.require_auth()` and then always fails with the reserved error `AuthOk`. A signature submitted on-chain has no effect and the host rolls its nonce back, so it stays verifiable.
+4. **The relying party verifies by simulation.** It rebuilds the expected call, checks that the verifier instance runs the reference Wasm (by hash), and runs `simulateTransaction` in enforcing mode. The account's own `__check_auth` decides against its current signers, thresholds and policies. The result is `valid`, `invalid` or `inconclusive`.
 
-An **anchored mode** (`anchor_message`) runs the same authorization and then emits the event `("anchored", account) -> sha256(xdr(msg))`, for cases that need a durable on-chain proof.
+There is **no canonical verifier address**. Anyone can deploy the reference Wasm; wallets and relying parties trust an instance only if its executable hash matches the published one.
 
-This is the same pattern [SEP-45](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md) already uses to authenticate contract accounts for web sessions (authorization entry + enforcing simulation), generalized to arbitrary messages and without a server-side signature.
+## Reference verifier
+
+```
+contracts/verifier/WASM_HASH = 2a5004a7736327a994d449af03ae7c5eea481da2d2d3191222dc7b4934a4c299
+```
+
+One function, no admin, no storage, no upgrade path. The message is a symbol-keyed map that the contract never reads, so new optional message fields never change the Wasm or its hash.
 
 ## Repository layout
 
 ```
-contracts/verifier/          sep53c-verifier Soroban contract (Rust, soroban-sdk 28)
-docs/SPEC.md                 draft specification (English)
-docs/ROADMAP.md              30-day plan, deliverables, success criteria
-docs/OVERVIEW.md             project overview (start here)
+contracts/verifier/     reference verifier (Rust, soroban-sdk 28) and its pinned Wasm hash
+docs/SPEC.md            draft SEP: "Signed Messages for Contract Accounts"
+docs/SEP-43-CHANGE.md   proposed wallet-interface change, separate from the SEP
+docs/OVERVIEW.md        project overview (source of C-Sign-Overview.pdf)
+docs/ROADMAP.md         plan and checkpoints
 ```
 
-Planned, not started: a TypeScript `signMessage` / `verifyMessage` library with adapters for OpenZeppelin smart accounts (via smart-account-kit), passkey-kit and OZ multisig; a two-origin demo; a public conformance suite. See [docs/ROADMAP.md](docs/ROADMAP.md).
+Next: testnet deployment, a TypeScript `verifyMessage` library and testnet experiments with OpenZeppelin smart accounts. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Build and test
 
 ```sh
-cargo test                # unit tests, native
-stellar contract build    # wasm: target/wasm32v1-none/release/sep53c_verifier.wasm
+cargo test                        # unit tests, native
+stellar contract build --locked   # wasm: target/wasm32v1-none/release/sep53c_verifier.wasm
+stellar contract info hash --wasm target/wasm32v1-none/release/sep53c_verifier.wasm   # must equal contracts/verifier/WASM_HASH
 ```
 
-Requires Rust with the `wasm32v1-none` target and stellar-cli 23 or newer (tested with 27.0.0). Enforcing simulation needs stellar-rpc 23 or newer and `SimulationAuthMode` in js-stellar-sdk.
+The build is reproducible. Pinned inputs: rustc 1.96.1 (`rust-toolchain.toml`), soroban-sdk 28.0.0 (`Cargo.lock`) and stellar-cli 27.0.0, whose version is embedded in the Wasm metadata. CI checks the hash on every push. Enforcing simulation needs stellar-rpc 23 or newer and `SimulationAuthMode` in js-stellar-sdk (17.1.0 or newer recommended).
 
 ## Known limitations
 
-- Validity is checked against the account's current rules, as with ERC-1271. A signature can stop verifying after signers change. Use anchored mode when non-repudiation matters.
-- Signature lifetime is bounded by `max_entry_ttl` (about 180 days on testnet).
-- Off-chain verification trusts the RPC used for simulation, like ERC-1271 with `eth_call`. Run your own RPC or cross-check two providers.
-- Accounts that are not yet deployed cannot be verified. There is no EIP-6492 equivalent.
-- Accounts whose context rules only allow specific contracts need a rule for the verifier before they can sign messages.
-
-## Links
-
-- Design comment on [stellar-protocol#1928](https://github.com/stellar/stellar-protocol/issues/1928#issuecomment-5823338114) (2026-09-24). SDF asked to continue in a dedicated issue.
-- Draft specification: [docs/SPEC.md](docs/SPEC.md)
+- Validity follows the account's current rules, as with ERC-1271: a signature stops verifying after signers or policies change.
+- Signature lifetime is bounded by `max_entry_ttl` (about 180 days on current network settings).
+- Verification trusts the RPC that runs the simulation, like ERC-1271 with `eth_call`. Use your own RPC or cross-check two providers.
+- Accounts that are not deployed yet cannot be verified.
+- Accounts whose context rules only allow specific contracts need a rule that covers the verifier.
 
 ## License
 
