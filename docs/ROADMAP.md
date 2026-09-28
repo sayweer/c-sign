@@ -7,6 +7,12 @@ Everything in the first phase runs on Stellar **testnet**. No checkpoint depends
 - Design comment on [#1928](https://github.com/stellar/stellar-protocol/issues/1928#issuecomment-5823338114) and dedicated issue [#2027](https://github.com/stellar/stellar-protocol/issues/2027), as SDF asked.
 - Draft SEP "Signed Messages for Contract Accounts" ([SPEC.md](SPEC.md)) following the SEP template, and the separate SEP-43 proposal ([SEP-43-CHANGE.md](SEP-43-CHANGE.md)).
 - Reference verifier: one function, no admin, no storage, message as a map; 5 unit tests; reproducible Wasm with a pinned hash checked in CI.
+- Two instances of the reference verifier on testnet plus the two experiment fixtures, from an idempotent script ([README](../README.md#testnet-deployments), [deployments/testnet.json](../deployments/testnet.json)).
+- TypeScript library `packages/c-sign`: message encoding, entry building, `verifyMessage` with the three-state decision, OpenZeppelin Ed25519 signing; 18 offline unit tests in CI.
+- Testnet experiments 1 to 4 and the latency check, recorded with transaction links in [EXPERIMENTS.md](EXPERIMENTS.md). The go/no-go gate passed: a signature submitted on-chain fails and leaves the nonce unused.
+- Passkey sign-in demo ([apps/demo](../apps/demo)) with a verification inspector and the key-rotation scene; its wallet flow is tested end to end on testnet with a software passkey.
+
+Still open from phase 1: the 2-of-3 threshold-policy account and a minimal Ed25519 account in the experiments, the size-limit experiment, a public demo deployment with a walkthrough video, a separate-origin verifier, and the SEP update with test vectors.
 
 ## Phase 1: first 30 days
 
