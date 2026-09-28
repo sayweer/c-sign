@@ -1,0 +1,11 @@
+{
+  "name": "c-sign-monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "e2e": "pnpm --filter c-sign e2e"
+  },
+  "packageManager": "pnpm@11.24.0"
+}

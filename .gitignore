@@ -2,3 +2,7 @@ target/
 node_modules/
 .env
 .DS_Store
+packages/c-sign/e2e/.last-run.json
+.env*.local
+.vercel
+dist/
