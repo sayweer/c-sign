@@ -3,7 +3,7 @@ name = "sep53c-verifier"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Canonical, admin-less verifier contract for C-Sign (SEP-53 profile for contract accounts)"
+description = "Reference verifier contract for C-Sign, signed messages for Stellar contract accounts"
 license = "Apache-2.0"
 
 [lib]

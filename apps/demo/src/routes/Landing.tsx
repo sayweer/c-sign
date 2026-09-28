@@ -1,4 +1,4 @@
-/** Marketing route: a progressive introduction to C-Sign, modelled on everspan's storyboard. */
+/** Landing route: a scroll-driven introduction to C-Sign. */
 import { useEffect, useRef, type ReactElement, type ReactNode } from 'react'
 import { BrandMark } from '../components/BrandMark'
 import { EnterDemo } from '../components/EnterDemo'
@@ -15,7 +15,7 @@ import { ArrowRightIcon, CheckIcon, LayersIcon, LockIcon, RefreshIcon, XIcon } f
 import { REPO_URL } from '../lib/config'
 
 /* ─────────────────────────────────────────────────────────
- * LANDING STORYBOARD (everspan's, scene for scene)
+ * LANDING STORYBOARD
  *
  *    0ms   the quiet hero is on screen; header and hero actions are live
  * scroll   each chapter rises over the last one as an inset card,
@@ -250,7 +250,7 @@ function SceneBody({ children, className = '' }: { children: ReactNode; classNam
   return <div className={`mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-10 ${className}`}>{children}</div>
 }
 
-/** everspan's SceneDocsLink, pointing at the specification and evidence instead of in-app docs. */
+/** Link from a scene to the specification or the testnet evidence. */
 function SceneLink({
   href,
   tone,
@@ -300,7 +300,7 @@ function LandingNav({ onNavigate }: { onNavigate: (scene: number) => void }): Re
   )
 }
 
-/** Scene 3, in the place of everspan's FixedRateVisual: the on-chain submission trace. */
+/** Scene 3: the on-chain submission that fails without burning the nonce. */
 function NonceVisual(): ReactElement {
   return (
     <div className="rounded-3xl bg-neutral-50 p-4 text-neutral-950 shadow-2xl shadow-neutral-950/15 sm:p-8">
@@ -333,7 +333,7 @@ function NonceVisual(): ReactElement {
   )
 }
 
-/** Scene 4, in the place of everspan's YieldVisual: two instances pass the pin, the fake one does not. */
+/** Scene 4: two instances pass the hash pin, the fake verifier does not. */
 function PinVisual(): ReactElement {
   return (
     <div className="surface-ink order-2 rounded-3xl bg-neutral-950 p-5 text-neutral-50 shadow-2xl shadow-neutral-950/15 sm:p-8 lg:order-1">
@@ -369,7 +369,7 @@ function PinRow({ id, name, ok }: { id: string; name: string; ok: boolean }): Re
   )
 }
 
-/** Scene 5, in the place of everspan's LiquidityVisual: the same signature before and after rotation. */
+/** Scene 5: the same signature before and after a key rotation. */
 function RotationVisual(): ReactElement {
   return (
     <div className="rounded-3xl bg-neutral-50 p-5 shadow-2xl shadow-neutral-950/10 sm:p-8">

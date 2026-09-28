@@ -1,10 +1,11 @@
 # C-Sign: Signed Messages for Stellar Contract Accounts
 
-**Project overview** · 26 September 2026 · Seyit ([@sayweer](https://github.com/sayweer))
+**Project overview** · 28 September 2026 · Seyit ([@sayweer](https://github.com/sayweer))
 
 | | |
 |---|---|
-| **Status** | Early development. Verifier contract written and unit-tested, nothing deployed yet. |
+| **Status** | Working on testnet: verifier deployed, TypeScript library, 15 testnet experiments passing, live demo. |
+| **Live demo** | [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app) (testnet, passkey sign-in without a transaction) |
 | **Repository** | [github.com/sayweer/c-sign](https://github.com/sayweer/c-sign) |
 | **Network** | Stellar testnet first, mainnet later |
 | **Draft SEP** | "Signed Messages for Contract Accounts", the counterpart of SEP-53 for contract accounts |
@@ -106,27 +107,32 @@ The same afternoon Alice pays for an x402-metered API with her smart account. Th
 ## Why now
 
 - **SDF wants this solved before SEP-43 is finalized** and has now asked for a dedicated issue.
-- **Nobody is building it.** Among the 46 projects funded in SCF #44, the 40 funded in SCF #45, the Türkiye chapter's Instawards cohorts, OpenZeppelin's smart-account roadmap, `stellar/smart-account-kit` and `stellar/passkey-kit`, there is no message-signing standard or verifier for contract accounts (checked 25 September 2026).
+- **Nobody is building it.** Among the 46 projects funded in SCF #44, the 40 funded in SCF #45, the Türkiye chapter's Instawards cohorts, OpenZeppelin's smart-account roadmap, `stellar/smart-account-kit` and `stellar/passkey-kit`, there is no message-signing standard or verifier for contract accounts (checked again on 28 September 2026).
 - **The pieces are in place.** V2 credentials (CAP-71), enforcing simulation in stellar-rpc 23, `SimulationAuthMode` in js-stellar-sdk, and the SEP-45 precedent all exist. C-Sign combines them; it does not need new protocol features.
 
 ## What is built today
 
-- **`contracts/verifier`**: the reference verifier (Rust, soroban-sdk 28), a single `verify_message` function, no admin, no storage. The Wasm is 1,475 bytes and builds reproducibly; its hash is pinned in the repository and checked in CI. 5 unit tests cover exact argument binding, tampered messages, signatures for another account, unauthorized calls and forward-compatible message keys. Not deployed yet.
+- **Live demo, [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app).** Create an OpenZeppelin smart account with a passkey, sign in to the site without a transaction, and watch every verification step. Then rotate the key: add a recovery key, remove the passkey, and the first signature turns invalid while the new key signs in.
+- **Reference verifier on testnet.** Two independent instances of the same Wasm (none is canonical), both running the pinned hash, deployed by an idempotent script. The Wasm is 1,475 bytes, builds reproducibly on macOS and Linux CI, and has 5 unit tests.
+- **TypeScript library (`packages/c-sign`).** Message encoding, entry building, OpenZeppelin signing and `verifyMessage`, which runs the checks of the draft SEP in order and answers `valid`, `invalid` or `inconclusive`. 18 offline unit tests run in CI.
+- **15 testnet experiments, all passing, with transaction links ([EXPERIMENTS.md](EXPERIMENTS.md)).** A valid signature submitted on-chain fails and leaves the account's nonce unused, and it still verifies afterwards; a fake verifier is caught by hash pinning; tampering, another domain, another account, expiry and nonce replay are rejected; after a key rotation the old signature is invalid. Median verification time is about 0.7 seconds.
 - **`docs/SPEC.md`**: the draft SEP "Signed Messages for Contract Accounts", written to the SEP template, with the verification algorithm, wallet rules, design rationale and security concerns. **`docs/SEP-43-CHANGE.md`**: the separate wallet-interface proposal.
-- **`docs/ROADMAP.md`**: how the pieces above get built, in three phases: testnet (spec, verifier, library, demo and conformance suite), consumers (x402 sign-in-with-x, middleware, wallet integrations), then the SEP pull request and mainnet.
+- **`docs/ROADMAP.md`**: what is done and what comes next: more account types in the experiments, the SEP pull request, wallet integrations and mainnet.
 
 ## Main risks
 
 | Risk | How it is handled |
 |---|---|
-| The signer side differs by account type: OpenZeppelin v0.9 changed its auth digest, passkey-kit and smart-account-kit are not drop-in compatible, `signAuthEntry` means different things in different wallets. | One adapter per account type with its own test vectors; the most common type (OpenZeppelin via smart-account-kit) is validated first, before anything else is built; delegated signers (CAP-71) come later. |
-| The `AUTH_OK` revert pattern is new on Stellar. | The host rolls the nonce back on a failed call (verified in the host source); the same idea was suggested for SEP-45 and set aside only because the server builds entries there; testnet transcripts come first. An RP-bound, non-reverting variant is documented as a fallback. |
+| The signer side differs by account type: OpenZeppelin v0.9 changed its auth digest, passkey-kit and smart-account-kit are not drop-in compatible, `signAuthEntry` means different things in different wallets. | One adapter per account type with its own test vectors. OpenZeppelin accounts with Ed25519 and passkey signers are validated on testnet; threshold policies and other account types come next; delegated signers (CAP-71) later. |
+| The `AUTH_OK` revert pattern is new on Stellar. | Confirmed on testnet: a submitted signature fails, the on-chain trace shows the account accepting it and the verifier raising `AUTH_OK`, and the nonce stays unused ([EXPERIMENTS.md](EXPERIMENTS.md), E2). The same idea was suggested for SEP-45 and set aside only because the server builds entries there. An RP-bound, non-reverting variant is documented as a fallback. |
 | The cheapest answer is "reject `signMessage` on C addresses", and some teams do that today. | The design is on SDF's table; a pull request to `stellar/smart-account-kit` turns substitution risk into partnership. |
 | Off-chain verification trusts the RPC. | Same model as ERC-1271 with `eth_call`; documented, with own-RPC and two-provider cross-check as options. |
 
 ## Links
 
+- Live demo: [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app)
 - Repository: [github.com/sayweer/c-sign](https://github.com/sayweer/c-sign)
+- Testnet evidence: [docs/EXPERIMENTS.md](EXPERIMENTS.md)
 - Draft specification: [docs/SPEC.md](SPEC.md) · Roadmap: [docs/ROADMAP.md](ROADMAP.md)
 - SDF issues: [stellar-protocol#2027](https://github.com/stellar/stellar-protocol/issues/2027) (this proposal) · [#1928](https://github.com/stellar/stellar-protocol/issues/1928) (origin)
 - Wallet interface change: [docs/SEP-43-CHANGE.md](SEP-43-CHANGE.md)

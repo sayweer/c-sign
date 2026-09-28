@@ -1,5 +1,7 @@
 # C-Sign demo
 
+Live on testnet: **[c-sign-demo.vercel.app](https://c-sign-demo.vercel.app)**
+
 A passkey smart account signs in to a site without a transaction, and a key rotation shows that validity follows the account's current rules.
 
 `/` is a scroll-driven landing page and `/app` is the demo. The landing, the entry sheet and the app shell reuse everspan's motion system unchanged (`src/components/scroll/*`, `OpeningScene`, `StatBand`, `PixelText`, `BottomSheet`, `lib/buttonStyles.ts`, GSAP ScrollTrigger); colours and type are C-Sign's, set as tokens in `src/index.css`. Under `prefers-reduced-motion` the scenes render as ordinary stacked sections.

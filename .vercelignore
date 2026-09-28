@@ -1,0 +1,9 @@
+# The demo deploy needs only the pnpm workspace sources.
+target/
+**/target/
+**/node_modules/
+**/dist/
+**/.env*
+!**/.env.example
+packages/c-sign/e2e/.last-run.json
+*.pdf

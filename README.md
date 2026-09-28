@@ -1,6 +1,8 @@
 # C-Sign: signed messages for Stellar contract accounts
 
-**Status:** draft specification, reference verifier deployed on testnet, TypeScript library, [15 testnet experiments](docs/EXPERIMENTS.md) and a passkey sign-in demo ([apps/demo](apps/demo)).
+**Status:** draft specification, reference verifier deployed on testnet, TypeScript library, [15 testnet experiments](docs/EXPERIMENTS.md) and a passkey sign-in demo.
+
+**Live demo: [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app)** (testnet)
 
 Read the [project overview](C-Sign-Overview.pdf) first, then the [draft specification](docs/SPEC.md).
 
@@ -65,7 +67,7 @@ const result = await verifyMessage({
 
 ## Demo
 
-[apps/demo](apps/demo): create an OpenZeppelin smart account with a passkey, sign in without a transaction, then rotate the key and watch the first signature turn invalid. Every check is shown as it runs. See [apps/demo/README.md](apps/demo/README.md) to run or deploy it.
+[c-sign-demo.vercel.app](https://c-sign-demo.vercel.app), source in [apps/demo](apps/demo): create an OpenZeppelin smart account with a passkey, sign in without a transaction, then rotate the key and watch the first signature turn invalid. Every check is shown as it runs. See [apps/demo/README.md](apps/demo/README.md) to run or deploy it.
 
 ## Repository layout
 
