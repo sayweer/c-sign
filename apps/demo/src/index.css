@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+/* Stark, dark-first. One neutral ramp; colour only carries verification state. */
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-invert: var(--invert);
+  --color-invert-ink: var(--invert-ink);
+  --color-invert-muted: var(--invert-muted);
+  --color-invert-line: var(--invert-line);
+  --color-invert-valid: var(--invert-valid);
+  --color-invert-invalid: var(--invert-invalid);
+  --color-valid: var(--valid);
+  --color-invalid: var(--invalid);
+  --color-unsure: var(--unsure);
+
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0b0c;
+  --surface: #111113;
+  --raised: #17171a;
+  --line: rgb(255 255 255 / 0.07);
+  --line-strong: rgb(255 255 255 / 0.13);
+  --ink: #ededef;
+  --muted: #9a9aa3;
+  --faint: #5f5f68;
+  /* The wallet is a different party, so it gets the inverted surface. */
+  --invert: #f4f4f2;
+  --invert-ink: #121214;
+  --invert-muted: #6b6b73;
+  --invert-line: rgb(0 0 0 / 0.08);
+  --invert-valid: #0c7f52;
+  --invert-invalid: #c62f2f;
+  --valid: #3ddc97;
+  --invalid: #ff6b6b;
+  --unsure: #f5b84b;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f7f7f5;
+    --surface: #ffffff;
+    --raised: #f1f1ef;
+    --line: rgb(0 0 0 / 0.07);
+    --line-strong: rgb(0 0 0 / 0.13);
+    --ink: #121214;
+    --muted: #62626a;
+    --faint: #9c9ca4;
+    --invert: #121214;
+    --invert-ink: #f4f4f2;
+    --invert-muted: #9a9aa3;
+    --invert-line: rgb(255 255 255 / 0.1);
+    --invert-valid: #3ddc97;
+    --invert-invalid: #ff6b6b;
+    --valid: #0f9f66;
+    --invalid: #d93b3b;
+    --unsure: #b7791f;
+  }
+}
+
+html {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--valid) 30%, transparent);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.animate-rise { animation: rise 320ms var(--ease-out-quint) both; }
+.animate-sheet { animation: sheet-in 360ms var(--ease-out-quint) both; }
+.animate-fade { animation: fade-in 240ms ease-out both; }
+.animate-pulse-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise, .animate-sheet, .animate-fade { animation: none; }
+  .animate-pulse-dot { animation: none; opacity: 1; }
+}
