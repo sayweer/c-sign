@@ -56,6 +56,7 @@ export default defineConfig({
       output: {
         manualChunks(id: string) {
           if (id.includes("@stellar/stellar-sdk") || id.includes("smart-account-kit")) return "stellar";
+          if (id.includes("node_modules/gsap")) return "gsap";
           return undefined;
         },
       },

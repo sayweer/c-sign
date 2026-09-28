@@ -2,6 +2,8 @@
 
 A passkey smart account signs in to a site without a transaction, and a key rotation shows that validity follows the account's current rules.
 
+`/` is a scroll-driven landing page and `/app` is the demo. The landing, the entry sheet and the app shell reuse everspan's motion system unchanged (`src/components/scroll/*`, `OpeningScene`, `StatBand`, `PixelText`, `BottomSheet`, `lib/buttonStyles.ts`, GSAP ScrollTrigger); colours and type are C-Sign's, set as tokens in `src/index.css`. Under `prefers-reduced-motion` the scenes render as ordinary stacked sections.
+
 1. **Create** an OpenZeppelin smart account on testnet with a passkey as its only signer ([smart-account-kit](https://github.com/stellar/smart-account-kit)). The relay pays the deployment.
 2. **Sign in.** The site issues a statement and a one-time nonce, the wallet writes the domain from the page origin, the passkey signs `verify_message(account, msg)`, and `/api/verify` runs the checks of SPEC §6. The inspector shows each check.
 3. **Rotate.** Add an Ed25519 recovery key, remove the passkey (both keys sign), check the first signature again (`invalid`), sign in with the recovery key (`valid`).

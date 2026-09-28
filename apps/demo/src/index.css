@@ -1,111 +1,372 @@
 @import "tailwindcss";
 
-/* Stark, dark-first. One neutral ramp; colour only carries verification state. */
-@theme {
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+/*
+ * The token architecture and every motion value come from everspan: colours
+ * are channel triplets on :root and on surface classes, so one utility name
+ * (`bg-neutral-950`, `text-accent-500`) reads correctly on every surface.
+ * `@theme inline` makes each utility resolve the variable where it is used,
+ * which is what lets `.surface-ink` and `.surface-site` re-tint a subtree.
+ *
+ * The colours are C-Sign's: a warm near-black, paper white, and one signal
+ * green that only ever means "authorized". Red means rejected, amber means
+ * the network could not say.
+ */
+@theme inline {
+  --color-neutral-50: rgb(var(--neutral-50));
+  --color-neutral-100: rgb(var(--neutral-100));
+  --color-neutral-200: rgb(var(--neutral-200));
+  --color-neutral-300: rgb(var(--neutral-300));
+  --color-neutral-400: rgb(var(--neutral-400));
+  --color-neutral-500: rgb(var(--neutral-500));
+  --color-neutral-600: rgb(var(--neutral-600));
+  --color-neutral-850: rgb(var(--neutral-850));
+  --color-neutral-900: rgb(var(--neutral-900));
+  --color-neutral-950: rgb(var(--neutral-950));
 
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-raised: var(--raised);
-  --color-line: var(--line);
-  --color-line-strong: var(--line-strong);
-  --color-ink: var(--ink);
-  --color-muted: var(--muted);
-  --color-faint: var(--faint);
-  --color-invert: var(--invert);
-  --color-invert-ink: var(--invert-ink);
-  --color-invert-muted: var(--invert-muted);
-  --color-invert-line: var(--invert-line);
-  --color-invert-valid: var(--invert-valid);
-  --color-invert-invalid: var(--invert-invalid);
-  --color-valid: var(--valid);
-  --color-invalid: var(--invalid);
-  --color-unsure: var(--unsure);
+  --color-accent-100: rgb(var(--accent-100));
+  --color-accent-200: rgb(var(--accent-200));
+  --color-accent-300: rgb(var(--accent-300));
+  --color-accent-400: rgb(var(--accent-400));
+  --color-accent-500: rgb(var(--accent-500));
+  --color-accent-600: rgb(var(--accent-600));
 
-  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --color-positive-100: rgb(var(--positive-100));
+  --color-positive-200: rgb(var(--positive-200));
+  --color-positive-300: rgb(var(--positive-300));
+  --color-positive-400: rgb(var(--positive-400));
+  --color-positive-500: rgb(var(--positive-500));
+  --color-negative-100: rgb(var(--negative-100));
+  --color-negative-200: rgb(var(--negative-200));
+  --color-negative-300: rgb(var(--negative-300));
+  --color-negative-400: rgb(var(--negative-400));
+  --color-negative-500: rgb(var(--negative-500));
+  --color-warning-100: rgb(var(--warning-100));
+  --color-warning-200: rgb(var(--warning-200));
+  --color-warning-300: rgb(var(--warning-300));
+  --color-warning-400: rgb(var(--warning-400));
+  --color-warning-500: rgb(var(--warning-500));
+
+  --color-figure-ember: rgb(var(--figure));
+  --color-figure-ochre: rgb(var(--figure));
+  --color-figure-verdigris: rgb(var(--figure));
+  --color-figure-mulberry: rgb(var(--figure));
+
+  --color-onAccent: rgb(var(--on-accent));
+  --color-onPositive: rgb(var(--on-positive));
+  --color-onNegative: rgb(var(--on-negative));
+  --color-boundary: rgb(var(--boundary));
+  --color-hairline: rgb(var(--hairline));
+  --color-raised: rgb(var(--raised));
+
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-figure: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif;
+
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --animate-toast-in: toast-in 200ms cubic-bezier(0, 0, 0.2, 1);
+  --animate-sheet-in: sheet-in 240ms cubic-bezier(0.2, 0, 0, 1);
+  --animate-drawer-in: drawer-in 260ms cubic-bezier(0.2, 0, 0, 1);
+  --animate-rise-in: rise-in 320ms cubic-bezier(0, 0, 0.2, 1) both;
 }
 
-:root {
-  color-scheme: dark;
-  --bg: #0b0b0c;
-  --surface: #111113;
-  --raised: #17171a;
-  --line: rgb(255 255 255 / 0.07);
-  --line-strong: rgb(255 255 255 / 0.13);
-  --ink: #ededef;
-  --muted: #9a9aa3;
-  --faint: #5f5f68;
-  /* The wallet is a different party, so it gets the inverted surface. */
-  --invert: #f4f4f2;
-  --invert-ink: #121214;
-  --invert-muted: #6b6b73;
-  --invert-line: rgb(0 0 0 / 0.08);
-  --invert-valid: #0c7f52;
-  --invert-invalid: #c62f2f;
-  --valid: #3ddc97;
-  --invalid: #ff6b6b;
-  --unsure: #f5b84b;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --bg: #f7f7f5;
-    --surface: #ffffff;
-    --raised: #f1f1ef;
-    --line: rgb(0 0 0 / 0.07);
-    --line-strong: rgb(0 0 0 / 0.13);
-    --ink: #121214;
-    --muted: #62626a;
-    --faint: #9c9ca4;
-    --invert: #121214;
-    --invert-ink: #f4f4f2;
-    --invert-muted: #9a9aa3;
-    --invert-line: rgb(255 255 255 / 0.1);
-    --invert-valid: #3ddc97;
-    --invert-invalid: #ff6b6b;
-    --valid: #0f9f66;
-    --invalid: #d93b3b;
-    --unsure: #b7791f;
-  }
-}
-
-html {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-
-::selection {
-  background: color-mix(in srgb, var(--valid) 30%, transparent);
-}
-
-@keyframes rise {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes sheet-in {
-  from { opacity: 0; transform: translateY(16px) scale(0.985); }
-  to { opacity: 1; transform: none; }
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 @keyframes pulse-dot {
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
 }
 
-.animate-rise { animation: rise 320ms var(--ease-out-quint) both; }
-.animate-sheet { animation: sheet-in 360ms var(--ease-out-quint) both; }
-.animate-fade { animation: fade-in 240ms ease-out both; }
-.animate-pulse-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+@layer base {
+  :root {
+    --brand-paper: #f4f4f2;
+    --brand-ink: #0b0b0c;
+    --brand-signal: #3ddc97;
+
+    /* Product surface: warm near-black ground, paper type. */
+    --neutral-50: 244 244 242;
+    --neutral-100: 237 237 239;
+    --neutral-200: 214 214 216;
+    --neutral-300: 182 182 188;
+    --neutral-400: 154 154 163;
+    --neutral-500: 128 128 136;
+    --neutral-600: 104 104 112;
+    --neutral-850: 34 34 38;
+    --neutral-900: 20 20 22;
+    --neutral-950: 11 11 12;
+    --boundary: 96 96 104;
+    --hairline: 40 40 44;
+    --raised: 29 29 33;
+    /* The loudest a control can be on the dark ground is paper. */
+    --accent-100: 150 150 156;
+    --accent-200: 176 176 182;
+    --accent-300: 200 200 205;
+    --accent-400: 224 224 226;
+    --accent-500: 244 244 242;
+    --accent-600: 228 228 226;
+    --on-accent: 11 11 12;
+    /* Signal green: authorized. -300 carries text, -500 holds white type. */
+    --positive-100: 199 245 222;
+    --positive-200: 140 234 190;
+    --positive-300: 61 220 151;
+    --positive-400: 23 170 110;
+    --positive-500: 12 127 82;
+    /* Rejected. */
+    --negative-100: 255 209 209;
+    --negative-200: 255 160 160;
+    --negative-300: 255 107 107;
+    --negative-400: 217 59 59;
+    --negative-500: 185 40 40;
+    /* The network could not say. */
+    --warning-100: 252 228 180;
+    --warning-200: 248 206 130;
+    --warning-300: 245 184 75;
+    --warning-400: 214 150 50;
+    --warning-500: 183 121 31;
+    --on-positive: 255 255 255;
+    --on-negative: 255 255 255;
+    --figure: 154 154 163;
+  }
+
+  html {
+    @apply font-sans antialiased;
+    background: var(--brand-ink);
+  }
+
+  .surface-app {
+    color-scheme: dark;
+    @apply bg-neutral-950 text-neutral-100;
+  }
+
+  @media (prefers-color-scheme: light) {
+    .surface-app {
+      color-scheme: light;
+      --neutral-50: 11 11 12;
+      --neutral-100: 20 20 22;
+      --neutral-200: 44 44 48;
+      --neutral-300: 88 88 96;
+      --neutral-400: 98 98 106;
+      --neutral-500: 110 110 118;
+      --neutral-600: 120 120 128;
+      --neutral-850: 229 229 226;
+      --neutral-900: 255 255 255;
+      --neutral-950: 244 244 242;
+      --boundary: 150 150 156;
+      --hairline: 222 222 218;
+      --raised: 233 233 230;
+      --accent-100: 22 22 24;
+      --accent-200: 22 22 24;
+      --accent-300: 22 22 24;
+      --accent-400: 11 11 12;
+      --accent-500: 11 11 12;
+      --accent-600: 11 11 12;
+      --on-accent: 244 244 242;
+      --positive-100: 8 110 70;
+      --positive-200: 8 110 70;
+      --positive-300: 12 127 82;
+      --positive-400: 14 140 90;
+      --negative-100: 160 32 32;
+      --negative-200: 160 32 32;
+      --negative-300: 185 40 40;
+      --negative-400: 200 45 45;
+      --warning-100: 140 90 20;
+      --warning-200: 140 90 20;
+      --warning-300: 150 98 22;
+      --warning-400: 160 105 25;
+      --figure: 98 98 106;
+    }
+  }
+
+  /* The landing route is paper; its dark chapters are the ink ground. */
+  .surface-site {
+    color-scheme: light;
+    --neutral-50: 244 244 242;
+    --neutral-200: 229 229 225;
+    --neutral-600: 98 98 106;
+    --neutral-900: 23 23 26;
+    --neutral-950: 11 11 12;
+    --accent-100: 22 22 24;
+    --accent-200: 22 22 24;
+    --accent-300: 22 22 24;
+    --accent-400: 11 11 12;
+    --accent-500: 11 11 12;
+    --accent-600: 11 11 12;
+    --on-accent: 244 244 242;
+    --boundary: 150 150 156;
+    --hairline: 222 222 218;
+    --raised: 233 233 230;
+    /* Green has to darken to carry a mark on paper. */
+    --positive-300: 12 143 92;
+    --figure: 23 23 26;
+    @apply bg-neutral-50 text-neutral-950;
+  }
+
+  /* A dark chapter inside the paper route takes the ink-ground values back. */
+  .surface-ink {
+    --accent-100: 150 150 156;
+    --accent-200: 176 176 182;
+    --accent-300: 200 200 205;
+    --accent-400: 224 224 226;
+    --accent-500: 244 244 242;
+    --accent-600: 228 228 226;
+    --on-accent: 11 11 12;
+    --boundary: 96 96 104;
+    --hairline: 40 40 44;
+    --raised: 29 29 33;
+    --positive-300: 61 220 151;
+    --figure: 154 154 163;
+  }
+
+  body {
+    @apply min-h-screen;
+  }
+
+  ::selection {
+    color: var(--brand-ink);
+    background: var(--brand-signal);
+  }
+
+  :root {
+    accent-color: rgb(var(--accent-500));
+    caret-color: rgb(var(--accent-400));
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--boundary)) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: rgb(var(--boundary));
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--accent-400));
+    background-clip: content-box;
+  }
+
+  /* Tailwind v4 dropped the pointer cursor on buttons; everspan (v3) had it. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .journey-copy {
+    opacity: 1;
+    transform: translate3d(0, 12px, 0);
+    transition:
+      opacity 300ms cubic-bezier(0, 0, 0.2, 1),
+      transform 300ms cubic-bezier(0, 0, 0.2, 1);
+  }
+  .journey-copy.is-active {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .journey-source,
+  .journey-positions,
+  .journey-choice {
+    position: absolute;
+    transition:
+      opacity 400ms cubic-bezier(0.4, 0, 0.2, 1),
+      transform 400ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .journey-source {
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    background: var(--brand-ink);
+    transform: scale(1);
+  }
+  .journey-source.is-separated {
+    opacity: 0;
+    transform: translate3d(0, -16px, 0) scale(0.92);
+  }
+  .journey-positions {
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    opacity: 0;
+    transform: translate3d(0, 24px, 0) scale(0.96);
+  }
+  .journey-positions.is-visible {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  .journey-choice {
+    right: 0.75rem;
+    bottom: 0.75rem;
+    left: 0.75rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid rgb(255 255 255 / 0.18);
+    border-radius: 999px;
+    color: var(--brand-paper);
+    background: rgb(11 11 12 / 0.88);
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.12em;
+    text-align: center;
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+    backdrop-filter: blur(8px);
+  }
+  .journey-choice.is-visible {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .animate-pulse-dot {
+    animation: pulse-dot 1.2s ease-in-out infinite;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-rise, .animate-sheet, .animate-fade { animation: none; }
-  .animate-pulse-dot { animation: none; opacity: 1; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .journey-copy,
+  .journey-source,
+  .journey-positions,
+  .journey-choice {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .journey-source.is-separated {
+    display: none;
+  }
 }

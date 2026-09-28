@@ -1,11 +1,19 @@
-import "./polyfills";
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import App from "./App";
-import "./index.css";
+import './polyfills'
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { Landing } from './routes/Landing'
+import { Demo } from './routes/Demo'
+import './index.css'
 
-createRoot(document.getElementById("root")!).render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/app" element={<Demo />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   </StrictMode>,
-);
+)
