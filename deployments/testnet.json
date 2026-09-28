@@ -1,0 +1,11 @@
+{
+  "network": "testnet",
+  "networkPassphrase": "Test SDF Network ; September 2015",
+  "wasmHash": "2a5004a7736327a994d449af03ae7c5eea481da2d2d3191222dc7b4934a4c299",
+  "instances": ["CCL5EDN2VGJYHY4BAF2ZXBE7LWP6QJ3TNZ64FLYUCQPRHRUOLIWHNFD5", "CDWCB2Z3JID4BFBMBCEWHUAGEALI6X3V6J2AWQ7O54XP643XOIPPXKJS"],
+  "fakeVerifier": { "id": "CBMSJ7WOMYZFLA6D7INKL7N5K77OXLKABEBPEP74XAAEDFT7HZKQIIYQ", "wasmHash": "f0b6033255eb4dcfde4a288a6fe3a1058b4168e7348d543e8cd2e80750bdc2d9", "note": "Experiment fixture only. Never trust it." },
+  "nonRevertingVerifier": { "id": "CCZNVR6C377CIWESBAPFF6WDPFROVU5W6SMXCBYG3X2N5W3E462H3LS4", "wasmHash": "4a0afd7ea5ed2b3e3b2ea343adad386492bd4f1d686526c15aeda3ed6d16de34", "note": "Experiment fixture only. Burns nonces." },
+  "deployer": "GBZ4HC46Z4D4J6VWR26KUQ4ZPKWSFI2QYH2AJ3JUHRMACK3ZCHB2VRGV",
+  "ttlLedger": 7905002,
+  "date": "2026-09-27"
+}

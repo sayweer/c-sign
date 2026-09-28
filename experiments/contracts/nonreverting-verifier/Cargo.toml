@@ -1,0 +1,28 @@
+# Experiment fixture only. Comparison case for the nonce experiment (E2):
+# it succeeds after require_auth, so a submitted signature burns its nonce.
+[package]
+name = "c-sign-nonreverting-verifier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = "=28.0.0"
+
+# Separate workspace so the reference verifier's Cargo.lock and Wasm hash stay untouched.
+[workspace]
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
