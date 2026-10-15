@@ -2,6 +2,7 @@
 // OpenZeppelin smart account with Ed25519 signers, and transaction submission.
 import { readFileSync } from "node:fs";
 import {
+  Account,
   Address,
   Keypair,
   Operation,
@@ -10,7 +11,14 @@ import {
   xdr,
   type Transaction,
 } from "@stellar/stellar-sdk";
-import { TESTNET, ozEd25519Signer, signOzEntryWithEd25519, type OzEd25519Key } from "../src/index.js";
+import {
+  TESTNET,
+  addressCredentials,
+  entrySignaturePayload,
+  ozEd25519Signer,
+  signOzEntryWithEd25519,
+  type OzEd25519Key,
+} from "../src/index.js";
 
 export const deployments = JSON.parse(
   readFileSync(new URL("../../../deployments/testnet.json", import.meta.url), "utf8"),
@@ -19,20 +27,39 @@ export const deployments = JSON.parse(
   instances: string[];
   fakeVerifier: { id: string };
   nonRevertingVerifier: { id: string; wasmHash: string };
+  ed25519Account: { wasmHash: string };
 };
 
 /** OpenZeppelin smart account and Ed25519 verifier on testnet (smart-account-kit deployments, protocol 27). */
 export const OZ_ACCOUNT_WASM = "1b5f4534a76322da2ad7c745f6900857a6802b0ca79850c35a03561df997785a";
 export const OZ_ED25519_VERIFIER = "CAAVTMCBXEIBPR64EAASKFXERVPYFZA2JYP5A3BG6PESWEFUJX5IHKN4";
+export const OZ_THRESHOLD_POLICY = "CB3FATQKCIRIQOCYRUPCQ2KREQ7T4RPKS7EAEOZWPEPUKWEDRVROBCEG";
+
+/** Constructor `policies` map that installs the simple threshold policy (`SimpleThresholdAccountParams`). */
+export const thresholdPolicies = (threshold: number): xdr.ScVal =>
+  xdr.ScVal.scvMap([
+    new xdr.ScMapEntry({
+      key: Address.fromString(OZ_THRESHOLD_POLICY).toScVal(),
+      val: xdr.ScVal.scvMap([new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("threshold"), val: xdr.ScVal.scvU32(threshold) })]),
+    }),
+  ]);
 
 export const networkPassphrase = TESTNET.networkPassphrase;
-export const rpcUrl = TESTNET.rpcUrl;
+/** Defaults to SDF's public testnet RPC; set RPC_URL to use another provider. */
+export const rpcUrl = process.env.RPC_URL ?? TESTNET.rpcUrl;
 export const server = new rpc.Server(rpcUrl);
 
 export async function fundedKeypair(): Promise<Keypair> {
   const kp = Keypair.random();
   const res = await fetch(`https://friendbot.stellar.org?addr=${kp.publicKey()}`);
-  if (!res.ok) throw new Error(`Friendbot failed: ${res.status}`);
+  if (res.ok) return kp;
+  // Friendbot is down: an existing account (FUNDER_SECRET) creates the fresh sponsor instead.
+  if (!process.env.FUNDER_SECRET) throw new Error(`Friendbot failed: ${res.status}; set FUNDER_SECRET to fund from an existing account`);
+  const funder = Keypair.fromSecret(process.env.FUNDER_SECRET);
+  const tx = await build(funder, Operation.createAccount({ destination: kp.publicKey(), startingBalance: "500" }));
+  tx.sign(funder);
+  const created = await submit(tx);
+  if (created.status !== "SUCCESS") throw new Error(`Funding the sponsor failed: ${created.status} ${created.hash}`);
   return kp;
 }
 
@@ -65,20 +92,46 @@ async function build(source: Keypair, op: xdr.Operation): Promise<Transaction> {
   return new TransactionBuilder(account, { fee: "1000000", networkPassphrase }).addOperation(op).setTimeout(60).build();
 }
 
-/** Deploys an OpenZeppelin smart account whose Default rule holds the given Ed25519 keys. */
-export async function deployOzAccount(sponsor: Keypair, keys: OzEd25519Key[]): Promise<{ id: string; hash: string }> {
+/** Deploys an OpenZeppelin smart account whose Default rule holds the given Ed25519 keys and policies. */
+export async function deployOzAccount(
+  sponsor: Keypair,
+  keys: OzEd25519Key[],
+  policies: xdr.ScVal = xdr.ScVal.scvMap([]),
+): Promise<{ id: string; hash: string }> {
   const salt = Buffer.from(Keypair.random().rawPublicKey());
   const op = Operation.createCustomContract({
     address: Address.fromString(sponsor.publicKey()),
     wasmHash: Buffer.from(OZ_ACCOUNT_WASM, "hex"),
     salt,
-    constructorArgs: [xdr.ScVal.scvVec(keys.map(ozEd25519Signer)), xdr.ScVal.scvMap([])],
+    constructorArgs: [xdr.ScVal.scvVec(keys.map(ozEd25519Signer)), policies],
   });
   const tx = await server.prepareTransaction(await build(sponsor, op));
   tx.sign(sponsor);
   const res = await submit(tx);
   if (res.status !== "SUCCESS" || !res.returnValue) throw new Error(`Account deploy failed: ${res.status} ${res.hash}`);
   return { id: Address.fromScVal(res.returnValue).toString(), hash: res.hash };
+}
+
+/** Deploys the minimal ed25519 account fixture (experiments/contracts/ed25519-account) for one key. */
+export async function deployEd25519Account(sponsor: Keypair, key: Keypair): Promise<{ id: string; hash: string }> {
+  const op = Operation.createCustomContract({
+    address: Address.fromString(sponsor.publicKey()),
+    wasmHash: Buffer.from(deployments.ed25519Account.wasmHash, "hex"),
+    salt: Buffer.from(Keypair.random().rawPublicKey()),
+    constructorArgs: [xdr.ScVal.scvBytes(Buffer.from(key.rawPublicKey()))],
+  });
+  const tx = await server.prepareTransaction(await build(sponsor, op));
+  tx.sign(sponsor);
+  const res = await submit(tx);
+  if (res.status !== "SUCCESS" || !res.returnValue) throw new Error(`Account deploy failed: ${res.status} ${res.hash}`);
+  return { id: Address.fromScVal(res.returnValue).toString(), hash: res.hash };
+}
+
+/** The minimal account takes a bare 64-byte Ed25519 signature over the signature payload. */
+export function signEd25519AccountEntry(entry: xdr.SorobanAuthorizationEntry, key: Keypair): xdr.SorobanAuthorizationEntry {
+  const copy = xdr.SorobanAuthorizationEntry.fromXDR(entry.toXDR());
+  addressCredentials(copy).signature(xdr.ScVal.scvBytes(key.sign(entrySignaturePayload(copy, networkPassphrase))));
+  return copy;
 }
 
 /**
@@ -106,6 +159,18 @@ export async function adminCall(
   const tx = await server.prepareTransaction(await build(sponsor, signedOp));
   tx.sign(sponsor);
   return submit(tx);
+}
+
+/** Return value of a read-only contract call, by simulation. */
+export async function readContract(contractId: string, fn: string, args: xdr.ScVal[]): Promise<xdr.ScVal> {
+  const op = Operation.invokeContractFunction({ contract: contractId, function: fn, args });
+  const tx = new TransactionBuilder(new Account(Keypair.random().publicKey(), "0"), { fee: "100", networkPassphrase })
+    .addOperation(op)
+    .setTimeout(30)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (!rpc.Api.isSimulationSuccess(sim) || !sim.result) throw new Error(`${fn} simulation failed: ${(sim as { error?: string }).error}`);
+  return sim.result.retval;
 }
 
 /** Submits `verify_message` with a signed entry, reusing the footprint of an equivalent successful call. */

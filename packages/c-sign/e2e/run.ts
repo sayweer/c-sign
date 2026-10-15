@@ -4,7 +4,7 @@
 //
 // Every account, key and sponsor is created fresh, so the run is repeatable.
 import { writeFileSync } from "node:fs";
-import { Account, Keypair, Operation, SorobanDataBuilder, TransactionBuilder, rpc, xdr, type Transaction } from "@stellar/stellar-sdk";
+import { Account, Address, Keypair, Operation, SorobanDataBuilder, TransactionBuilder, rpc, xdr, type Transaction } from "@stellar/stellar-sdk";
 import {
   buildMessageEntry,
   encodeEntry,
@@ -21,20 +21,25 @@ import {
 import {
   OZ_ACCOUNT_WASM,
   OZ_ED25519_VERIFIER,
+  OZ_THRESHOLD_POLICY,
   adminCall,
   contractCodeKey,
   contractInstanceKey,
+  deployEd25519Account,
   deployOzAccount,
   deployments,
   ed25519Key,
   fundedKeypair,
   networkPassphrase,
   nonceConsumed,
+  readContract,
   rpcUrl,
   server,
+  signEd25519AccountEntry,
   failureTrace,
   submit,
   submitVerifyCall,
+  thresholdPolicies,
 } from "./testnet.js";
 
 const DOMAIN = "demo.c-sign.dev";
@@ -92,6 +97,54 @@ const verify = (entry: xdr.SorobanAuthorizationEntry | string, extra: Partial<Ve
 
 const describe = (r: VerifyResult) =>
   r.status === "valid" ? "valid" : `${r.status} (${r.steps.find((s) => s.status === "fail" || s.status === "error")?.id}: ${r.reason})`;
+
+/**
+ * Largest statement, in bytes, that the account still authorizes. Bypasses the
+ * library's provisional size checks on purpose and bisects on the enforcing
+ * simulation; "authorized" means the verifier raised its success code.
+ */
+async function maxStatementBytes(
+  account: string,
+  keys: OzEd25519Key[],
+): Promise<{ bytes: number; msgBytes: number; requestBytes: number; failure: string }> {
+  const latest = (await server.getLatestLedger()).sequence;
+  const base = message("x");
+  const attempt = async (n: number) => {
+    const raw = messageToScVal({ ...base, statement: "a".repeat(n) }, false);
+    const entry = buildMessageEntry({ verifierId: VERIFIER_A, account, message: base, expirationLedger: latest + 720 });
+    const call = entry.rootInvocation().function().contractFn();
+    call.args([call.args()[0], raw]);
+    const signed = signOzEntryWithEd25519(entry, keys, networkPassphrase);
+    const tx = new TransactionBuilder(new Account(Keypair.random().publicKey(), "0"), { fee: "100", networkPassphrase })
+      .addOperation(Operation.invokeHostFunction({ func: xdr.HostFunction.hostFunctionTypeInvokeContract(call), auth: [signed] }))
+      .setTimeout(60)
+      .build();
+    // Raw JSON-RPC, so a transport refusal (such as a request-size cap) is reported verbatim.
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "simulateTransaction", params: { transaction: tx.toXDR(), authMode: "enforce" } });
+    const text = await (await fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body })).text();
+    let error: string;
+    try {
+      const json = JSON.parse(text);
+      error = String(json.result?.error ?? json.error?.message ?? "simulation succeeded").split("\n")[0];
+    } catch {
+      error = `RPC: ${text.trim().slice(0, 80)}`;
+    }
+    return { ok: error.startsWith("HostError: Error(Contract, #1)"), error, msgBytes: raw.toXDR().length, requestBytes: body.length };
+  };
+  let lo = 0;
+  let hi = 1024 * 1024;
+  const top = await attempt(hi);
+  if (top.ok) return { bytes: hi, msgBytes: top.msgBytes, requestBytes: top.requestBytes, failure: "none up to the search bound" };
+  let failure = top.error;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    const res = await attempt(mid);
+    if (res.ok) lo = mid;
+    else [hi, failure] = [mid, res.error];
+  }
+  const last = await attempt(lo);
+  return { bytes: lo, msgBytes: last.msgBytes, requestBytes: last.requestBytes, failure };
+}
 
 async function main() {
   console.log("Setting up sponsor and accounts on testnet…");
@@ -284,6 +337,96 @@ async function main() {
     evidence: txLink(removed.hash),
   });
 
+  // ---- Threshold policy: validity follows policy state, not only the signer set ----
+  const [t1, t2, t3] = [ed25519Key(), ed25519Key(), ed25519Key()];
+  const multisig = await deployOzAccount(sponsor, [t1, t2, t3], thresholdPolicies(2));
+  console.log(`multisig ${multisig.id}`);
+  const twoOfThree = await sign(multisig.id, [t1, t3], message("Approve with two of three keys"));
+  r = await verify(twoOfThree);
+  record({
+    id: "T1",
+    experiment: "OpenZeppelin account, 2-of-3 threshold policy: two keys sign",
+    expected: "valid",
+    observed: describe(r),
+    pass: r.status === "valid",
+    evidence: `account ${contractLink(multisig.id)}, deployed in ${txLink(multisig.hash)}`,
+  });
+
+  r = await verify(await sign(multisig.id, [t2], message("Approve with one key")));
+  record({
+    id: "T2",
+    experiment: "Same account: one key signs",
+    expected: "invalid at check_auth",
+    observed: describe(r),
+    pass: r.status === "invalid" && r.steps.find((s) => s.id === "check_auth")?.status === "fail",
+  });
+
+  // set_threshold takes the rule as stored; the account calls the policy through execute().
+  const rule = await readContract(multisig.id, "get_context_rule", [xdr.ScVal.scvU32(0)]);
+  const raised = await adminCall(
+    sponsor,
+    multisig.id,
+    "execute",
+    [
+      Address.fromString(OZ_THRESHOLD_POLICY).toScVal(),
+      xdr.ScVal.scvSymbol("set_threshold"),
+      xdr.ScVal.scvVec([xdr.ScVal.scvU32(3), rule, Address.fromString(multisig.id).toScVal()]),
+    ],
+    [t1, t2],
+  );
+  const oldTwo = await verify(twoOfThree);
+  const allThree = await verify(await sign(multisig.id, [t1, t2, t3], message("Approve with all three keys")));
+  record({
+    id: "T3",
+    experiment: "Raise the threshold to 3 (policy state only; signers unchanged)",
+    expected: "old two-key signature invalid, three-key signature valid",
+    observed: `set_threshold ${raised.status}; old ${describe(oldTwo)}; three keys ${describe(allThree)}`,
+    pass: raised.status === "SUCCESS" && oldTwo.status === "invalid" && allThree.status === "valid",
+    evidence: txLink(raised.hash),
+  });
+
+  // ---- Minimal ed25519 account: another signing format, same verification ----
+  const plainKey = Keypair.random();
+  const plain = await deployEd25519Account(sponsor, plainKey);
+  console.log(`ed25519  ${plain.id}`);
+  const plainEntry = async (key: Keypair, statement: string) => {
+    const latestLedger = (await server.getLatestLedger()).sequence;
+    const unsigned = buildMessageEntry({ verifierId: VERIFIER_A, account: plain.id, message: message(statement), expirationLedger: latestLedger + 720 });
+    return signEd25519AccountEntry(unsigned, key);
+  };
+  r = await verify(await plainEntry(plainKey, "Sign in with a minimal ed25519 account"));
+  record({
+    id: "M1",
+    experiment: "Minimal ed25519 account (bare signature over the payload, no rules or policies)",
+    expected: "valid",
+    observed: describe(r),
+    pass: r.status === "valid",
+    evidence: `account ${contractLink(plain.id)}, deployed in ${txLink(plain.hash)}`,
+  });
+  r = await verify(await plainEntry(Keypair.random(), "Signed with a key the account does not have"));
+  record({
+    id: "M2",
+    experiment: "Same account, signed with another key",
+    expected: "invalid at check_auth",
+    observed: describe(r),
+    pass: r.status === "invalid" && r.steps.find((s) => s.id === "check_auth")?.status === "fail",
+  });
+
+  // ---- Size limits: the largest statement each account type authorizes ---------
+  for (const [id, label, acct, keys] of [
+    ["S1", "OpenZeppelin account, no policy", account.id, [k2]],
+    ["S2", "OpenZeppelin account with the threshold policy (its enforce() emits the call context as an event)", multisig.id, [t1, t2, t3]],
+  ] as const) {
+    const size = await maxStatementBytes(acct, [...keys]);
+    record({
+      id,
+      experiment: `Size limit, ${label}`,
+      expected: "at least 1024 bytes (the provisional statement limit)",
+      observed: `largest statement ${size.bytes} bytes (msg ${size.msgBytes} bytes as XDR, simulation request ${size.requestBytes} bytes); one byte more: \`${size.failure}\``,
+      pass: size.bytes >= 1024,
+    });
+  }
+
   // ---- Latency ---------------------------------------------------------------
   const sample = await sign(account.id, [k2], message("Latency sample"));
   const times: number[] = [];
@@ -297,27 +440,27 @@ async function main() {
   const median = (times[9] + times[10]) / 2;
   record({
     id: "L1",
-    experiment: "Verification latency, public testnet RPC, 20 runs",
+    experiment: `Verification latency, public testnet RPC (${new URL(rpcUrl).host}), 20 runs`,
     expected: "median under 2 s",
     observed: `median ${Math.round(median)} ms, max ${Math.round(times[19])} ms`,
     pass: median < 2000,
   });
 
-  writeReport(account.id, other.id);
+  writeReport(account.id, other.id, multisig.id, plain.id);
   writeFileSync(new URL("./.last-run.json", import.meta.url), JSON.stringify({ account: account.id, validSignature: encodeEntry(fresh.status === "valid" ? sample : s1) }, null, 2));
   const failed = rows.filter((row) => !row.pass);
   console.log(failed.length ? `\n${failed.length} experiment(s) failed` : "\nAll experiments passed");
   process.exit(failed.length ? 1 : 0);
 }
 
-function writeReport(accountId: string, otherId: string) {
+function writeReport(accountId: string, otherId: string, multisigId: string, plainId: string) {
   const date = new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
   const md = [
     "# Testnet experiments",
     "",
-    `Generated by \`pnpm e2e\` (\`packages/c-sign/e2e/run.ts\`) on ${date}. Every run creates fresh keys, a fresh sponsor and fresh OpenZeppelin smart accounts (Wasm \`${OZ_ACCOUNT_WASM.slice(0, 8)}…\`, Ed25519 verifier ${contractLink(OZ_ED25519_VERIFIER)}).`,
+    `Generated by \`pnpm e2e\` (\`packages/c-sign/e2e/run.ts\`) on ${date}. Every run creates fresh keys, a fresh sponsor and fresh OpenZeppelin smart accounts (Wasm \`${OZ_ACCOUNT_WASM.slice(0, 8)}…\`, Ed25519 verifier ${contractLink(OZ_ED25519_VERIFIER)}, threshold policy ${contractLink(OZ_THRESHOLD_POLICY)}). RPC: \`${rpcUrl}\`.`,
     "",
-    `- Account under test: ${contractLink(accountId)}; second account: ${contractLink(otherId)}`,
+    `- Account under test: ${contractLink(accountId)}; second account: ${contractLink(otherId)}; 2-of-3 account: ${contractLink(multisigId)}; minimal ed25519 account: ${contractLink(plainId)} (Wasm \`${deployments.ed25519Account.wasmHash.slice(0, 8)}…\`, [source](../experiments/contracts/ed25519-account))`,
     `- Reference verifier instances: ${contractLink(VERIFIER_A)}, ${contractLink(VERIFIER_B)} (Wasm \`${deployments.wasmHash.slice(0, 8)}…\`)`,
     `- Fixtures: fake verifier ${contractLink(FAKE)}, non-reverting verifier ${contractLink(NONREV)}`,
     "",
@@ -332,6 +475,9 @@ function writeReport(accountId: string, otherId: string) {
     "- **E2:** submitting a signature on-chain fails and leaves the account's nonce unused, so the signature stays verifiable. The same experiment with a verifier that succeeds burns the nonce. This answers the nonce question raised in stellar-protocol#2027.",
     "- **N1 to N5:** tampering, cross-domain use, cross-account use, expiry and nonce replay are rejected.",
     "- **R1, R2:** validity follows the account's current rules, as with ERC-1271: after key rotation the old signature no longer verifies and the new key does.",
+    "- **T1 to T3:** a threshold policy decides as well: two of three keys verify, one does not, and after the threshold is raised to three the same two-key signature stops verifying while a three-key signature verifies. Verification never re-implements signer or policy logic.",
+    "- **M1, M2:** a minimal non-OpenZeppelin account, which signs the raw payload instead of an OpenZeppelin auth digest, verifies through the same path. The SEP standardizes the entry, not the account's signature format.",
+    "- **S1, S2:** the largest statement each account authorizes, found by bisection on the enforcing simulation with the library's provisional limits bypassed. The host accepts statements far beyond the SEP limits, with or without the threshold policy: the policy's events are rolled back with the failing verifier call, so event-size limits never apply. What stops verification is the RPC's request-size cap, which depends on the provider. The SEP limits are therefore a display and transport choice, not a host constraint.",
     "",
   ].join("\n");
   writeFileSync(new URL("../../../docs/EXPERIMENTS.md", import.meta.url), md);
