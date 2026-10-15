@@ -6,7 +6,7 @@ Title: Signed Messages for Contract Accounts
 Author: Seyit (@sayweer)
 Status: Draft
 Created: 2026-09-25
-Updated: 2026-09-26
+Updated: 2026-10-15
 Version: 0.0.1
 Discussion: https://github.com/stellar/stellar-protocol/issues/2027
 ```
@@ -67,7 +67,7 @@ The signature is a `SorobanAuthorizationEntry` in which the account authorizes o
 | `resources` | Vec<String> | no | URIs the user is agreeing to |
 
 - Wallets and RPs MUST reject keys not listed for the declared `version`.
-- Size: `statement` MUST NOT exceed 1024 bytes and the XDR-encoded `msg` MUST NOT exceed 2048 bytes. These values are provisional; they will be set from measurements with policy-enabled OpenZeppelin accounts, whose policies embed the call context in events (see Open items).
+- Size: `statement` MUST NOT exceed 1024 bytes and the XDR-encoded `msg` MUST NOT exceed 2048 bytes. These limits keep the request readable on a wallet screen and the signature small enough to pass around; they are not host limits. On testnet the host authorized statements of about 190 KB, with and without a threshold policy, and verification stopped only at the RPC's request-size cap ([EXPERIMENTS.md](EXPERIMENTS.md), S1 and S2).
 - The verifier never reads `msg`. New optional keys in later versions do not change the reference Wasm or its hash.
 
 ### 3. Reference verifier
@@ -152,7 +152,7 @@ A CAIP-122 profile for Stellar needs two signature types: SEP-53 for `G…` acco
 - **Blind signing.** The message is displayed from the signed entry; entries with sub-invocations or unknown keys are refused.
 - **RPC trust.** Verification trusts the RPC that runs the simulation, as ERC-1271 trusts `eth_call`. RPs SHOULD use their own RPC or cross-check two providers.
 - **Current-state semantics.** A signature stops verifying after the account's signers or policies change. This supports revocation but not non-repudiation.
-- **Resource limits.** Oversized messages can exceed event or resource limits in policy-enabled accounts; wallets enforce the size limits.
+- **Resource limits.** Because the verifier call always fails, events emitted during `__check_auth` (for example by policies) are rolled back, so event-size limits do not apply; the practical bound is the RPC's request size. Wallets and RPs still enforce the limits of §2.
 
 ## Limitations
 
@@ -162,10 +162,10 @@ A CAIP-122 profile for Stellar needs two signature types: SEP-53 for `G…` acco
 
 ## Open items (to be settled on testnet before FCP)
 
-- Exact size limits for `statement` and `msg` with policy-enabled OpenZeppelin accounts.
+- ~~Exact size limits for `statement` and `msg` with policy-enabled OpenZeppelin accounts.~~ Measured on testnet: the host does not constrain them below the RPC's request size ([EXPERIMENTS.md](EXPERIMENTS.md), S1 and S2); the limits of §2 stay as a display and transport choice.
 - ~~Confirmation that the verifier-scoped diagnostic error event is present in `simulateTransaction` responses on current stellar-rpc versions.~~ Confirmed on testnet ([EXPERIMENTS.md](EXPERIMENTS.md), P1).
 - Shape of supporting entries for accounts with delegated signers.
-- Test vectors: offline vectors for message encoding, entries, signature payloads, OpenZeppelin signing (single signer and 2-of-3) and structural rejections are in [vectors/c-sign-v1.json](../vectors/c-sign-v1.json). Still open: testnet results for a 2-of-3 account with a threshold policy and a minimal ed25519 account. The on-chain submission experiment is done for an OpenZeppelin account: the nonce is not consumed ([EXPERIMENTS.md](EXPERIMENTS.md), E2).
+- Test vectors: offline vectors for message encoding, entries, signature payloads, OpenZeppelin signing (single signer and 2-of-3) and structural rejections are in [vectors/c-sign-v1.json](../vectors/c-sign-v1.json). Testnet results for a 2-of-3 account with a threshold policy and a minimal ed25519 account are in [EXPERIMENTS.md](EXPERIMENTS.md) (T1 to T3, M1 and M2). The on-chain submission experiment is done for an OpenZeppelin account: the nonce is not consumed ([EXPERIMENTS.md](EXPERIMENTS.md), E2).
 
 ## Changelog
 

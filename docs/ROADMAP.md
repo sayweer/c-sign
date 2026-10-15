@@ -10,10 +10,11 @@ Everything in the first phase runs on Stellar **testnet**. No checkpoint depends
 - Two instances of the reference verifier on testnet plus the two experiment fixtures, from an idempotent script ([README](../README.md#testnet-deployments), [deployments/testnet.json](../deployments/testnet.json)).
 - TypeScript library `packages/c-sign`: message encoding, entry building, `verifyMessage` with the three-state decision, OpenZeppelin Ed25519 signing; 18 offline unit tests in CI.
 - Testnet experiments 1 to 4 and the latency check, recorded with transaction links in [EXPERIMENTS.md](EXPERIMENTS.md). The go/no-go gate passed: a signature submitted on-chain fails and leaves the nonce unused.
+- Experiments for a 2-of-3 threshold-policy account (T1 to T3), a minimal Ed25519 account ([fixture](../experiments/contracts/ed25519-account), M1 and M2) and size limits (S1, S2).
 - Offline test vectors in [vectors/c-sign-v1.json](../vectors/c-sign-v1.json): message encoding, entries and signature payloads, OpenZeppelin signing, structural rejections; cross-checked against the Rust XDR implementation.
 - Passkey sign-in demo, live at [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app) ([source](../apps/demo)), with a verification inspector and the key-rotation scene; its wallet flow is tested end to end on testnet with a software passkey.
 
-Still open from phase 1: the 2-of-3 threshold-policy account and a minimal Ed25519 account in the experiments, the size-limit experiment, a walkthrough video, a separate-origin verifier, and the SEP update with the vectors and measured limits.
+Still open from phase 1: a walkthrough video, a separate-origin verifier, and the SEP pull request with the vectors and measured limits.
 
 ## Phase 1: first 30 days
 
