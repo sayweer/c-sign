@@ -5,7 +5,8 @@
 #   contracts/verifier/WASM_HASH.
 # - Deploys two instances of it (there is no canonical instance) and two
 #   experiment fixtures: fake-verifier (pinning, E1) and nonreverting-verifier
-#   (nonce, E2).
+#   (nonce, E2), and uploads the minimal ed25519 account Wasm (M1, M2), which
+#   the experiments deploy per run.
 # - Contract ids come from fixed salts, so re-running skips what already exists
 #   and only extends TTLs. After a testnet reset it redeploys everything.
 set -euo pipefail
@@ -38,8 +39,10 @@ fi
 echo "==> Building experiment fixtures"
 (cd experiments/contracts/fake-verifier && stellar contract build >/dev/null)
 (cd experiments/contracts/nonreverting-verifier && stellar contract build >/dev/null)
+(cd experiments/contracts/ed25519-account && stellar contract build >/dev/null)
 FAKE_WASM="experiments/contracts/fake-verifier/target/wasm32v1-none/release/c_sign_fake_verifier.wasm"
 NONREV_WASM="experiments/contracts/nonreverting-verifier/target/wasm32v1-none/release/c_sign_nonreverting_verifier.wasm"
+ED25519_ACCOUNT_WASM="experiments/contracts/ed25519-account/target/wasm32v1-none/release/c_sign_ed25519_account.wasm"
 
 upload() {
   stellar contract upload --wasm "$1" --source "$IDENTITY" --network "$NETWORK" 2>/dev/null
@@ -69,6 +72,7 @@ echo "==> Uploading Wasm"
 HASH="$(upload "$WASM")"
 FAKE_HASH="$(upload "$FAKE_WASM")"
 NONREV_HASH="$(upload "$NONREV_WASM")"
+ED25519_ACCOUNT_HASH="$(upload "$ED25519_ACCOUNT_WASM")"
 
 echo "==> Deploying instances"
 A="$(deploy "$HASH" c-sign-verifier-a)"
@@ -89,6 +93,7 @@ echo "==> Extending TTLs"
 extend --wasm-hash "$HASH" >/dev/null
 extend --wasm-hash "$FAKE_HASH" >/dev/null
 extend --wasm-hash "$NONREV_HASH" >/dev/null
+extend --wasm-hash "$ED25519_ACCOUNT_HASH" >/dev/null
 TTL_A="$(extend --id "$A")"
 TTL_B="$(extend --id "$B")"
 extend --id "$FAKE" >/dev/null
@@ -102,6 +107,7 @@ cat > deployments/testnet.json <<EOF
   "instances": ["$A", "$B"],
   "fakeVerifier": { "id": "$FAKE", "wasmHash": "$FAKE_HASH", "note": "Experiment fixture only. Never trust it." },
   "nonRevertingVerifier": { "id": "$NONREV", "wasmHash": "$NONREV_HASH", "note": "Experiment fixture only. Burns nonces." },
+  "ed25519Account": { "wasmHash": "$ED25519_ACCOUNT_HASH", "note": "Experiment fixture only. Minimal account, deployed per run." },
   "deployer": "$DEPLOYER",
   "ttlLedger": $(( TTL_A < TTL_B ? TTL_A : TTL_B )),
   "date": "$(date -u +%Y-%m-%d)"
