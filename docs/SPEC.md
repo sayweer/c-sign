@@ -165,7 +165,7 @@ A CAIP-122 profile for Stellar needs two signature types: SEP-53 for `G…` acco
 - Exact size limits for `statement` and `msg` with policy-enabled OpenZeppelin accounts.
 - ~~Confirmation that the verifier-scoped diagnostic error event is present in `simulateTransaction` responses on current stellar-rpc versions.~~ Confirmed on testnet ([EXPERIMENTS.md](EXPERIMENTS.md), P1).
 - Shape of supporting entries for accounts with delegated signers.
-- Test vectors for OpenZeppelin smart accounts (single signer and 2-of-3 with a threshold policy) and a minimal ed25519 account. The on-chain submission experiment is done for an OpenZeppelin account: the nonce is not consumed ([EXPERIMENTS.md](EXPERIMENTS.md), E2).
+- Test vectors: offline vectors for message encoding, entries, signature payloads, OpenZeppelin signing (single signer and 2-of-3) and structural rejections are in [vectors/c-sign-v1.json](../vectors/c-sign-v1.json). Still open: testnet results for a 2-of-3 account with a threshold policy and a minimal ed25519 account. The on-chain submission experiment is done for an OpenZeppelin account: the nonce is not consumed ([EXPERIMENTS.md](EXPERIMENTS.md), E2).
 
 ## Changelog
 
