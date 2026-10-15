@@ -19,7 +19,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "tsx e2e/run.ts"
+    "e2e": "tsx e2e/run.ts",
+    "vectors": "tsx scripts/vectors.ts"
   },
   "peerDependencies": {
     "@stellar/stellar-sdk": "^16.3.0"

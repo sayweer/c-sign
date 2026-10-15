@@ -5,7 +5,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "e2e": "pnpm --filter c-sign e2e"
+    "e2e": "pnpm --filter c-sign e2e",
+    "vectors": "pnpm --filter c-sign vectors"
   },
   "packageManager": "pnpm@11.24.0"
 }
