@@ -95,7 +95,7 @@ A signature is a base64-encoded XDR `SorobanAuthorizationEntry` such that:
 2. `root_invocation.sub_invocations` is empty.
 3. `credentials` is `SOROBAN_CREDENTIALS_ADDRESS_V2` and `credentials.address` equals `account`. V2 binds the signer address into the preimage (`HashIdPreimageSorobanAuthorizationWithAddress`), so a signature cannot be reattributed to another account that shares a signer.
 4. `signature_expiration_ledger` is at least the current ledger and at most `current + max_entry_ttl − 1`. For interactive use a short lifetime is RECOMMENDED (for example 720 ledgers, about one hour).
-5. How `credentials.signature` is produced is defined by the account implementation (for example OpenZeppelin accounts sign an auth digest that commits to `context_rule_ids`). This SEP standardizes only the entry shape and its verification; verification by simulation keeps it independent of account-specific signing formats.
+5. How `credentials.signature` is produced is defined by the account implementation. For example, OpenZeppelin stellar-accounts 0.8.0 and later sign `sha256(xdr(AuthDigestPreimage { account, signature_payload, context_rule_ids }))` and 0.7.x sign `sha256(signature_payload || xdr(context_rule_ids))`; both are in the [test vectors](../vectors/c-sign-v1.json). This SEP standardizes only the entry shape and its verification; verification by simulation keeps it independent of account-specific signing formats.
 
 Accounts whose `__check_auth` itself requires authorization from other addresses (for example delegated signers) MAY need additional entries. Their exact shape is an open item (see below).
 
@@ -169,4 +169,5 @@ A CAIP-122 profile for Stellar needs two signature types: SEP-53 for `G…` acco
 
 ## Changelog
 
+- `v0.0.2` (draft): §4 item 5 describes the OpenZeppelin auth digest of stellar-accounts 0.7.x and 0.8.0.
 - `v0.0.1`: Initial draft.
