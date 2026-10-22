@@ -324,7 +324,7 @@ export function buildVectors() {
     },
     oz_signing: {
       $comment:
-        "Informative: how an OpenZeppelin smart account signs. The scheme is set by the account's implementation version. legacy-concat (stellar-accounts <= 0.7.x): auth_digest = sha256(signature_payload || XDR(Vec<u32> context_rule_ids)). preimage-v1 (0.8.0+): auth_digest = sha256(XDR(AuthDigestPreimage)), a Map with Symbol keys account (credentials.address), context_rule_ids (Vec<u32>), signature_payload (BytesN<32>). AuthPayload is the same for both. The SEP does not standardize this; verification is by simulation.",
+        "Informative: how an OpenZeppelin smart account signs. The scheme is set by the account's implementation version. legacy-concat (stellar-accounts 0.7.x): auth_digest = sha256(signature_payload || XDR(Vec<u32> context_rule_ids)). preimage-v1 (0.8.0+): auth_digest = sha256(XDR(AuthDigestPreimage)), a Map with Symbol keys account (credentials.address), context_rule_ids (Vec<u32>), signature_payload (BytesN<32>). AuthPayload is the same for both. The SEP does not standardize this; verification is by simulation.",
       cases: ozSigning(),
     },
     structural: {

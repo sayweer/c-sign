@@ -4,7 +4,7 @@ import { addressCredentials, entrySignaturePayload } from "../entry.js";
 /**
  * Signing helpers for OpenZeppelin smart accounts.
  *
- * OpenZeppelin accounts do not sign the entry payload directly. Up to stellar-accounts 0.7.x each signer signs
+ * OpenZeppelin accounts do not sign the entry payload directly. In stellar-accounts 0.7.x each signer signs
  * `sha256(payload ‖ xdr(Vec<u32> context_rule_ids))`; from 0.8.0 it signs `sha256(xdr(AuthDigestPreimage))`, which
  * also binds the account address. Either way the entry carries `AuthPayload { context_rule_ids, signers: Map<Signer, Bytes> }`.
  * C-Sign itself does not depend on this format; verification is by simulation.
@@ -13,7 +13,7 @@ import { addressCredentials, entrySignaturePayload } from "../entry.js";
 /** Context rule 0 is the account's Default rule, which covers any call. */
 export const DEFAULT_CONTEXT_RULE_IDS = [0];
 
-/** `legacy-concat` = OpenZeppelin stellar-accounts <= 0.7.x, `preimage-v1` = 0.8.0+ (names follow smart-account-kit). */
+/** `legacy-concat` = OpenZeppelin stellar-accounts 0.7.x, `preimage-v1` = 0.8.0+ (names follow smart-account-kit). Earlier versions are not supported. */
 export type OzDigestScheme = "legacy-concat" | "preimage-v1";
 
 const ruleIdsScVal = (contextRuleIds: number[]) => xdr.ScVal.scvVec(contextRuleIds.map((id) => xdr.ScVal.scvU32(id)));
