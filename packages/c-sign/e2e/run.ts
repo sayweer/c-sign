@@ -83,7 +83,7 @@ async function sign(
     expirationLedger: opts.expirationLedger ?? latest + 720,
     nonce: opts.nonce,
   });
-  return signOzEntryWithEd25519(entry, keys, networkPassphrase);
+  return signOzEntryWithEd25519(entry, keys, networkPassphrase, "legacy-concat");
 }
 
 const verify = (entry: xdr.SorobanAuthorizationEntry | string, extra: Partial<VerifyOptions> = {}): Promise<VerifyResult> =>
@@ -114,7 +114,7 @@ async function maxStatementBytes(
     const entry = buildMessageEntry({ verifierId: VERIFIER_A, account, message: base, expirationLedger: latest + 720 });
     const call = entry.rootInvocation().function().contractFn();
     call.args([call.args()[0], raw]);
-    const signed = signOzEntryWithEd25519(entry, keys, networkPassphrase);
+    const signed = signOzEntryWithEd25519(entry, keys, networkPassphrase, "legacy-concat");
     const tx = new TransactionBuilder(new Account(Keypair.random().publicKey(), "0"), { fee: "100", networkPassphrase })
       .addOperation(Operation.invokeHostFunction({ func: xdr.HostFunction.hostFunctionTypeInvokeContract(call), auth: [signed] }))
       .setTimeout(60)

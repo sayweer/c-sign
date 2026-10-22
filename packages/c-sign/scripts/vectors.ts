@@ -17,8 +17,10 @@ import {
   entrySignaturePayload,
   messageToScVal,
   ozAuthDigest,
+  ozAuthDigestPreimage,
   ozEd25519Signer,
   signOzEntryWithEd25519,
+  type OzDigestScheme,
   type OzEd25519Key,
   type SignedMessage,
 } from "../src/index.js";
@@ -174,24 +176,34 @@ function ozSigning() {
       ruleIds: [1],
     },
   ];
-  return cases.map(({ name, description, keys, ruleIds }) => {
-    const digest = ozAuthDigest(entry, NETWORK, ruleIds);
-    const signed = signOzEntryWithEd25519(entry, keys, NETWORK, ruleIds);
-    const creds = signed.credentials().addressV2();
-    return {
-      name,
-      description,
-      input: { unsigned_entry_xdr: encodeEntry(entry), network_passphrase: NETWORK, context_rule_ids: ruleIds, signer_keys: keys.map((k) => KEYS.indexOf(k) + 1) },
-      auth_digest_hex: digest.toString("hex"),
-      signatures: keys.map((k) => ({
-        key: KEYS.indexOf(k) + 1,
-        signer_xdr: b64(ozEd25519Signer(k)),
-        signature_hex: k.keypair.sign(digest).toString("hex"),
-      })),
-      auth_payload_xdr: b64(creds.signature()),
-      signed_entry_xdr: encodeEntry(signed),
-    };
-  });
+  const schemes: { scheme: OzDigestScheme; suffix: string }[] = [
+    { scheme: "legacy-concat", suffix: "" },
+    { scheme: "preimage-v1", suffix: "_preimage_v1" },
+  ];
+  return schemes.flatMap(({ scheme, suffix }) =>
+    cases.map(({ name, description, keys, ruleIds }) => {
+      const digest = ozAuthDigest(entry, NETWORK, scheme, ruleIds);
+      const signed = signOzEntryWithEd25519(entry, keys, NETWORK, scheme, ruleIds);
+      const creds = signed.credentials().addressV2();
+      return {
+        name: name + suffix,
+        description,
+        scheme,
+        input: { unsigned_entry_xdr: encodeEntry(entry), network_passphrase: NETWORK, context_rule_ids: ruleIds, signer_keys: keys.map((k) => KEYS.indexOf(k) + 1) },
+        ...(scheme === "preimage-v1" && {
+          auth_digest_preimage_xdr: b64(ozAuthDigestPreimage(ACCOUNT, entrySignaturePayload(entry, NETWORK), ruleIds)),
+        }),
+        auth_digest_hex: digest.toString("hex"),
+        signatures: keys.map((k) => ({
+          key: KEYS.indexOf(k) + 1,
+          signer_xdr: b64(ozEd25519Signer(k)),
+          signature_hex: k.keypair.sign(digest).toString("hex"),
+        })),
+        auth_payload_xdr: b64(creds.signature()),
+        signed_entry_xdr: encodeEntry(signed),
+      };
+    }),
+  );
 }
 
 function structural() {
@@ -312,7 +324,7 @@ export function buildVectors() {
     },
     oz_signing: {
       $comment:
-        "Informative: how an OpenZeppelin smart account signs. auth_digest = sha256(signature_payload || XDR(Vec<u32> context_rule_ids)). The SEP does not standardize this; verification is by simulation.",
+        "Informative: how an OpenZeppelin smart account signs. The scheme is set by the account's implementation version. legacy-concat (stellar-accounts <= 0.7.x): auth_digest = sha256(signature_payload || XDR(Vec<u32> context_rule_ids)). preimage-v1 (0.8.0+): auth_digest = sha256(XDR(AuthDigestPreimage)), a Map with Symbol keys account (credentials.address), context_rule_ids (Vec<u32>), signature_payload (BytesN<32>). AuthPayload is the same for both. The SEP does not standardize this; verification is by simulation.",
       cases: ozSigning(),
     },
     structural: {

@@ -74,6 +74,7 @@ async function main() {
     }),
     [key],
     networkPassphrase,
+    "legacy-concat",
   );
   const signature = encodeEntry(entry);
   const verify = await post("/api/verify", { signature, token: challenge.token });

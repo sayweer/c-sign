@@ -153,7 +153,7 @@ export async function adminCall(
     const c = entry.credentials();
     const creds = c.switch().name === "sorobanCredentialsAddressV2" ? c.addressV2() : c.address();
     creds.signatureExpirationLedger(expiration);
-    return signOzEntryWithEd25519(entry, keys, networkPassphrase);
+    return signOzEntryWithEd25519(entry, keys, networkPassphrase, "legacy-concat");
   });
   const signedOp = Operation.invokeContractFunction({ contract: accountId, function: fn, args, auth });
   const tx = await server.prepareTransaction(await build(sponsor, signedOp));
