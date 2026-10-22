@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Status** | Working on testnet: verifier deployed, TypeScript library, 15 testnet experiments passing, live demo. |
+| **Status** | Working on testnet: verifier deployed, TypeScript library, 25 testnet experiments passing, live demo. |
 | **Live demo** | [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app) (testnet, passkey sign-in without a transaction) |
 | **Repository** | [github.com/sayweer/c-sign](https://github.com/sayweer/c-sign) |
 | **Network** | Stellar testnet first, mainnet later |
