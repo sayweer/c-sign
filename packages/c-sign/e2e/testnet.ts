@@ -30,8 +30,17 @@ export const deployments = JSON.parse(
   ed25519Account: { wasmHash: string };
 };
 
-/** OpenZeppelin smart account and Ed25519 verifier on testnet (smart-account-kit deployments, protocol 27). */
+/**
+ * OpenZeppelin smart account, Ed25519 verifier and threshold policy on testnet (smart-account-kit deployments,
+ * built for protocol 26 per their env-meta). The account predates stellar-accounts 0.8.0 and signs `legacy-concat`.
+ */
 export const OZ_ACCOUNT_WASM = "1b5f4534a76322da2ad7c745f6900857a6802b0ca79850c35a03561df997785a";
+/**
+ * OpenZeppelin stellar-contracts v0.8.0 (ddc327e), examples/multisig-smart-account/account, built with
+ * `stellar contract build --package multisig-account-example` (stellar CLI 27.0.0, rustc 1.98.1). Signs `preimage-v1`.
+ * The hash depends on the toolchain; a rebuild elsewhere may differ.
+ */
+export const OZ_ACCOUNT_WASM_V08 = "4a13bfb0a895ecfc188bb115d8c8b8bbf2044ac58c87bcd535f0cc53c97c1c57";
 export const OZ_ED25519_VERIFIER = "CAAVTMCBXEIBPR64EAASKFXERVPYFZA2JYP5A3BG6PESWEFUJX5IHKN4";
 export const OZ_THRESHOLD_POLICY = "CB3FATQKCIRIQOCYRUPCQ2KREQ7T4RPKS7EAEOZWPEPUKWEDRVROBCEG";
 
@@ -97,11 +106,12 @@ export async function deployOzAccount(
   sponsor: Keypair,
   keys: OzEd25519Key[],
   policies: xdr.ScVal = xdr.ScVal.scvMap([]),
+  wasmHash: string = OZ_ACCOUNT_WASM,
 ): Promise<{ id: string; hash: string }> {
   const salt = Buffer.from(Keypair.random().rawPublicKey());
   const op = Operation.createCustomContract({
     address: Address.fromString(sponsor.publicKey()),
-    wasmHash: Buffer.from(OZ_ACCOUNT_WASM, "hex"),
+    wasmHash: Buffer.from(wasmHash, "hex"),
     salt,
     constructorArgs: [xdr.ScVal.scvVec(keys.map(ozEd25519Signer)), policies],
   });
