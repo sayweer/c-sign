@@ -87,6 +87,7 @@ apps/demo/                            passkey sign-in demo (Vite, React, Vercel 
 docs/SPEC.md                          draft SEP: "Signed Messages for Contract Accounts"
 docs/SEP-43-CHANGE.md                 proposed wallet-interface change, separate from the SEP
 docs/EXPERIMENTS.md                   testnet evidence with transaction links
+docs/THREAT-MODEL.md                  threat model: trust assumptions, threats, tests, known gaps
 docs/OVERVIEW.md                      project overview (source of C-Sign-Overview.pdf)
 docs/ROADMAP.md                       plan and checkpoints
 scripts/deploy-testnet.sh             testnet deployment (idempotent)
