@@ -6,9 +6,9 @@ Title: Signed Messages for Contract Accounts
 Author: Seyit (@sayweer)
 Status: Draft
 Created: 2026-09-25
-Updated: 2026-10-15
+Updated: 2026-10-22
 Version: 0.0.1
-Discussion: https://github.com/stellar/stellar-protocol/issues/2027
+Discussion: https://github.com/stellar/stellar-protocol/discussions/2045
 ```
 
 ## Simple Summary
