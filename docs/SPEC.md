@@ -180,7 +180,7 @@ A longer threat model, with test coverage and the reference implementation's kno
 
 - Reference verifier: [contracts/verifier](https://github.com/sayweer/c-sign/tree/main/contracts/verifier).
 - TypeScript library for building, signing and verifying entries: [packages/c-sign](https://github.com/sayweer/c-sign/tree/main/packages/c-sign) (implements v0.0.1; v0.0.2 changes pending).
-- Test vectors: [vectors/c-sign-v1.json](https://github.com/sayweer/c-sign/blob/main/vectors/c-sign-v1.json) (message encoding, entries, signature payloads, OpenZeppelin signing for 0.7.x and 0.8.0, structural rejections).
+- Test vectors: [vectors/c-sign-v1.json](https://github.com/sayweer/c-sign/blob/main/vectors/c-sign-v1.json) (message encoding, entries, signature payloads, OpenZeppelin signing for 0.7.x and 0.8.0, the checks of §6 and the wallet's `domain` of §5).
 - Testnet experiments: [EXPERIMENTS.md](https://github.com/sayweer/c-sign/blob/main/docs/EXPERIMENTS.md).
 
 ## Changelog

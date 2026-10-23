@@ -90,17 +90,17 @@ Planned: the failing direction of the verifier-event check on testnet, wrapper c
 
 ## Known gaps in the reference implementation
 
-The specification is the target. The library implements 0.0.1 and the following are planned for library v0.2:
+The specification is the target. The library implements 0.0.1 and the following are planned for library v0.2. The test vectors cover the v0.0.2 rules; the cases the library fails are listed by row in `KNOWN_GAPS` in [test/vectors.test.ts](../packages/c-sign/test/vectors.test.ts), and the test fails when a listed case starts passing.
 
 | Area | Current behaviour | v0.0.2 rule |
 |---|---|---|
 | Sign-in checks | `domain` and the nonce check are optional, and a result without them can still be `valid` | Split the API so a sign-in requires both and an inspection call never reports a sign-in (§6 step 4, §6 after step 8) |
 | Input size | No limit on the encoded or decoded entry before decoding | Length limits before decoding, no RPC call (§6 step 1) |
 | Characters and `domain` form | Not checked | §2 |
-| Time | Default skew of 300 s, also added to the challenge lifetime; vectors encode that window | At most 60 s, not added (§6 step 4) |
+| Time | Default skew of 300 s, also added to the challenge lifetime; challenge age taken from `issued_at` | At most 60 s, not added (§6 step 4) |
 | Expiration | No sign-in upper bound | 17280 ledgers for sign-in (§6 step 2) |
 | Network and RPC | Network passphrase not checked against the RPC; pin cache keyed by the declared passphrase; latest-ledger age not checked; plain `http` RPC accepted without an explicit opt-in | §6 step 6; cache per network id |
-| Missing verifier instance | `inconclusive` | `invalid` (§6 step 5) |
+| Missing verifier instance | `inconclusive`; the SDK's `getContractData` reports every failure as not found, so the library has to read the entry with `getLedgerEntries` to tell the two apart | `invalid` (§6 step 5) |
 | Decision | `invalid` found by searching the whole error text | First line only (§6 step 7) |
 | Nonce | Checked before pinning and simulation, consumption left to the caller, no atomic consume; a throwing callback makes `verifyMessage` throw | Consume on `valid` only, atomically (§6 step 8) |
 | Wallet side | No validator for entries received from an application; the OpenZeppelin signing helper signs any entry | §5 items 3 and 5 |
