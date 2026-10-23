@@ -39,6 +39,7 @@ const ED25519_VERIFIER = contractId("c-sign vector ed25519 verifier");
 const DOMAIN = "demo.c-sign.dev";
 const ISSUED_AT = 1_790_000_000;
 const EXPIRATION_LEDGER = 1_000_000;
+const SPEC_VERSION = "0.0.2";
 
 const KEY_SEEDS = [1, 2, 3].map((n) => `c-sign test key ${n}`);
 const KEYS: OzEd25519Key[] = KEY_SEEDS.map((seed) => ({
@@ -81,6 +82,8 @@ function validMessages() {
       description: "Statement of exactly 1024 bytes (512 two-byte characters); the limit counts bytes, not characters",
       message: { ...MINIMAL, statement: "ç".repeat(512) },
     },
+    { name: "domain_with_port", description: "A port other than 443 is part of domain", message: { ...MINIMAL, domain: "demo.c-sign.dev:8443" } },
+    { name: "domain_a_label", description: "An internationalized host (örnek.com) as its A-label", message: { ...MINIMAL, domain: "xn--rnek-4qa.com" } },
   ];
   return cases.map(({ name, description, message }) => {
     const val = messageToScVal(message);
@@ -116,6 +119,25 @@ function invalidMessages() {
       description: "XDR-encoded msg larger than 2048 bytes",
       val: raw({ ...MINIMAL, resources: Array(80).fill("https://example.com/resource") }),
     },
+    { name: "statement_line_feed", description: "Control character U+000A (Cc) in statement", val: raw({ ...MINIMAL, statement: "Sign in\nto C-Sign demo" }) },
+    { name: "statement_line_separator", description: "Line separator U+2028 (Zl) in statement", val: raw({ ...MINIMAL, statement: "Sign in\u2028to C-Sign demo" }) },
+    { name: "statement_bidi_override", description: "Right-to-left override U+202E (Default_Ignorable) in statement", val: raw({ ...MINIMAL, statement: "Sign in \u202enomed" }) },
+    { name: "statement_zero_width_space", description: "Zero-width space U+200B (Default_Ignorable) in statement", val: raw({ ...MINIMAL, statement: "Sign\u200bin" }) },
+    { name: "resource_tab", description: "Control character U+0009 (Cc) in an element of resources", val: raw({ ...MINIMAL, resources: ["https://demo.c-sign.dev/\tterms"] }) },
+    {
+      name: "statement_invalid_utf8",
+      description: "statement bytes 53 FF 69 are not valid UTF-8",
+      val: withEntries((e) =>
+        e.map((x) => (x.key().sym().toString() === "statement" ? new xdr.ScMapEntry({ key: x.key(), val: xdr.ScVal.scvString(Buffer.from([0x53, 0xff, 0x69])) }) : x)),
+      ),
+    },
+    { name: "domain_uppercase", description: "domain not in lower case", val: raw({ ...MINIMAL, domain: "Demo.c-sign.dev" }) },
+    { name: "domain_trailing_dot", description: "domain with a trailing dot", val: raw({ ...MINIMAL, domain: "demo.c-sign.dev." }) },
+    { name: "domain_default_port", description: "domain with :443", val: raw({ ...MINIMAL, domain: "demo.c-sign.dev:443" }) },
+    { name: "domain_with_scheme", description: "domain with a scheme", val: raw({ ...MINIMAL, domain: "https://demo.c-sign.dev" }) },
+    { name: "domain_with_path", description: "domain with a path", val: raw({ ...MINIMAL, domain: "demo.c-sign.dev/login" }) },
+    { name: "domain_with_userinfo", description: "domain with userinfo", val: raw({ ...MINIMAL, domain: "user@demo.c-sign.dev" }) },
+    { name: "domain_u_label", description: "Internationalized host as a U-label instead of xn--rnek-4qa.com", val: raw({ ...MINIMAL, domain: "örnek.com" }) },
   ];
   return cases.map(({ name, description, val }) => ({ name, description, msg_xdr: b64(val), expected: "reject" as const }));
 }
@@ -206,23 +228,33 @@ function ozSigning() {
   );
 }
 
+/** An entry for `message` whose msg is encoded as given, without validating it. */
+function rawEntry(message: SignedMessage, verifierId = VERIFIER) {
+  const e = buildMessageEntry({ verifierId, account: ACCOUNT, message: MINIMAL, expirationLedger: EXPIRATION_LEDGER, nonce: xdr.Int64.fromString("7") });
+  e.rootInvocation().function().contractFn().args([Address.fromString(ACCOUNT).toScVal(), messageToScVal(message, false)]);
+  return e;
+}
+
+type VerifyContext = { domain: string; now: number; address?: string; issued_nonces?: { nonce: string; issued_at: number }[] };
+
 function structural() {
-  const base = () =>
-    buildMessageEntry({ verifierId: VERIFIER, account: ACCOUNT, message: MINIMAL, expirationLedger: EXPIRATION_LEDGER, nonce: xdr.Int64.fromString("7") });
+  const base = () => rawEntry(MINIMAL);
   const mutate = (fn: (e: xdr.SorobanAuthorizationEntry) => void) => {
     const e = base();
     fn(e);
     return encodeEntry(e);
   };
-  const context = { domain: DOMAIN, now: ISSUED_AT };
-  const cases: {
-    name: string;
-    description: string;
-    signature: string;
-    context: { domain: string; now: number; address?: string; issued_nonces?: string[] };
-    step: string;
-  }[] = [
+  const context: VerifyContext = { domain: DOMAIN, now: ISSUED_AT };
+  const signIn = (now: number): VerifyContext => ({ domain: DOMAIN, now, issued_nonces: [{ nonce: MINIMAL.nonce, issued_at: ISSUED_AT }] });
+  const cases: { name: string; description: string; signature: string; context: VerifyContext; step: string }[] = [
     { name: "malformed_xdr", description: "Not a base64 XDR SorobanAuthorizationEntry", signature: "bm90LXhkcg==", context, step: "decode" },
+    {
+      name: "oversized_signature",
+      description: "Well-formed entry of 16388 bytes: its base64 is longer than 21848 characters, rejected before decoding",
+      signature: encodeEntry(rawEntry({ ...MINIMAL, resources: [`https://demo.c-sign.dev/${"a".repeat(15960)}`] })),
+      context,
+      step: "decode",
+    },
     {
       name: "wrong_function",
       description: "Root call is not verify_message",
@@ -255,6 +287,19 @@ function structural() {
       step: "credentials",
     },
     {
+      name: "delegates_credentials",
+      description: "SOROBAN_CREDENTIALS_ADDRESS_WITH_DELEGATES (CAP-71) instead of V2",
+      signature: mutate((e) =>
+        e.credentials(
+          xdr.SorobanCredentials.sorobanCredentialsAddressWithDelegates(
+            new xdr.SorobanAddressCredentialsWithDelegates({ addressCredentials: e.credentials().addressV2(), delegates: [] }),
+          ),
+        ),
+      ),
+      context,
+      step: "credentials",
+    },
+    {
       name: "credentials_for_other_account",
       description: "credentials.address differs from the account argument",
       signature: mutate((e) => e.credentials().addressV2().address(Address.fromString(OTHER_ACCOUNT).toScAddress())),
@@ -273,13 +318,35 @@ function structural() {
       context,
       step: "message",
     },
+    {
+      name: "message_control_character",
+      description: "statement contains U+000A",
+      signature: encodeEntry(rawEntry({ ...MINIMAL, statement: "Sign in\nto C-Sign demo" })),
+      context,
+      step: "message",
+    },
     { name: "other_domain", description: "Signed for demo.c-sign.dev, presented to evil.example", signature: encodeEntry(base()), context: { ...context, domain: "evil.example" }, step: "domain" },
-    { name: "issued_in_future", description: "issued_at beyond the 300 s clock skew", signature: encodeEntry(base()), context: { ...context, now: ISSUED_AT - 301 }, step: "freshness" },
+    { name: "parent_domain", description: "Signed for demo.c-sign.dev, presented to c-sign.dev: no suffix matching", signature: encodeEntry(base()), context: { ...context, domain: "c-sign.dev" }, step: "domain" },
+    { name: "issued_in_future", description: "issued_at 61 s in the future, beyond the 60 s skew", signature: encodeEntry(base()), context: { ...context, now: ISSUED_AT - 61 }, step: "freshness" },
+    {
+      name: "message_expired",
+      description: "expiration_time passed 61 s ago",
+      signature: encodeEntry(rawEntry({ ...MINIMAL, expirationTime: ISSUED_AT + 600 })),
+      context: { ...context, now: ISSUED_AT + 661 },
+      step: "freshness",
+    },
+    {
+      name: "message_not_yet_valid",
+      description: "not_before is 61 s away",
+      signature: encodeEntry(rawEntry({ ...MINIMAL, notBefore: ISSUED_AT + 600 })),
+      context: { ...context, now: ISSUED_AT + 539 },
+      step: "freshness",
+    },
     {
       name: "stale_sign_in",
-      description: "Sign-in older than 300 s plus 300 s skew",
+      description: "Nonce issued 301 s ago: past the 300 s challenge lifetime, which skew does not extend",
       signature: encodeEntry(base()),
-      context: { ...context, now: ISSUED_AT + 601, issued_nonces: [MINIMAL.nonce] },
+      context: signIn(ISSUED_AT + 301),
       step: "freshness",
     },
     {
@@ -293,11 +360,157 @@ function structural() {
   return cases.map(({ step, ...c }) => ({ ...c, expected: { status: "invalid" as const, step } }));
 }
 
+type InstanceState = { state: "wasm"; wasm_hash: string } | { state: "external_ref" | "missing" | "archived" };
+
+interface RpcState {
+  network_passphrase: string;
+  latest_ledger: number;
+  latest_ledger_close_time: number;
+  verifier_instance: InstanceState;
+  simulation: { succeeded: true } | { error: string; contract_error_events: { contract: "verifier" | "account"; code: number }[] };
+}
+
+function verification() {
+  const now = ISSUED_AT + 10;
+  const authOk = (contract: "verifier" | "account" = "verifier") => ({
+    error: "HostError: Error(Contract, #1)\n\nEvent log (newest first):\n   0: [Diagnostic Event] topics:[error, Error(Contract, #1)]",
+    contract_error_events: [{ contract, code: 1 }],
+  });
+  const rpc = (over: Partial<RpcState> = {}): RpcState => ({
+    network_passphrase: NETWORK,
+    latest_ledger: EXPIRATION_LEDGER - 1000,
+    latest_ledger_close_time: now - 5,
+    verifier_instance: { state: "wasm", wasm_hash: REFERENCE_WASM_HASH },
+    simulation: authOk(),
+    ...over,
+  });
+  const context: VerifyContext = { domain: DOMAIN, now };
+  const signIn: VerifyContext = { ...context, issued_nonces: [{ nonce: MINIMAL.nonce, issued_at: ISSUED_AT }] };
+  type Expected = { status: "valid" | "invalid" | "inconclusive"; step?: string; nonce_consumed?: boolean };
+  const cases: { name: string; description: string; requirement?: "SHOULD"; context: VerifyContext; rpc: RpcState; expected: Expected }[] = [
+    { name: "valid", description: "Reference Wasm, AuthOk raised by the verifier", context, rpc: rpc(), expected: { status: "valid" } },
+    { name: "valid_sign_in", description: "A valid sign-in consumes the nonce", context: signIn, rpc: rpc(), expected: { status: "valid", nonce_consumed: true } },
+    {
+      name: "expired_entry",
+      description: "signature_expiration_ledger is below the latest ledger",
+      context,
+      rpc: rpc({ latest_ledger: EXPIRATION_LEDGER + 1 }),
+      expected: { status: "invalid", step: "expiration" },
+    },
+    {
+      name: "sign_in_expiration_too_far",
+      description: "Sign-in entry expiring 17281 ledgers after the latest ledger",
+      requirement: "SHOULD",
+      context: signIn,
+      rpc: rpc({ latest_ledger: EXPIRATION_LEDGER - 17281 }),
+      expected: { status: "invalid", step: "expiration", nonce_consumed: false },
+    },
+    {
+      name: "instance_other_wasm",
+      description: "Verifier instance runs another Wasm",
+      context,
+      rpc: rpc({ verifier_instance: { state: "wasm", wasm_hash: "00".repeat(32) } }),
+      expected: { status: "invalid", step: "pin" },
+    },
+    {
+      name: "instance_external_ref",
+      description: "Verifier executable is CONTRACT_EXECUTABLE_EXTERNAL_REF (CAP-85); never resolved to a hash",
+      context,
+      rpc: rpc({ verifier_instance: { state: "external_ref" } }),
+      expected: { status: "invalid", step: "pin" },
+    },
+    { name: "instance_missing", description: "No contract at the verifier address", context, rpc: rpc({ verifier_instance: { state: "missing" } }), expected: { status: "invalid", step: "pin" } },
+    { name: "instance_archived", description: "Verifier instance is archived", context, rpc: rpc({ verifier_instance: { state: "archived" } }), expected: { status: "inconclusive", step: "pin" } },
+    {
+      name: "rpc_other_network",
+      description: "The RPC serves mainnet, the RP expects testnet",
+      context,
+      rpc: rpc({ network_passphrase: Networks.PUBLIC }),
+      expected: { status: "inconclusive", step: "network" },
+    },
+    {
+      name: "rpc_stale",
+      description: "The RPC's latest ledger closed 31 s ago",
+      requirement: "SHOULD",
+      context,
+      rpc: rpc({ latest_ledger_close_time: now - 31 }),
+      expected: { status: "inconclusive", step: "network" },
+    },
+    {
+      name: "account_rejects",
+      description: "The account's __check_auth fails: invalid, and the nonce stays unused",
+      context: signIn,
+      rpc: rpc({ simulation: { error: "HostError: Error(Auth, InvalidAction)\n\nEvent log (newest first):\n   0: [Diagnostic Event] ...", contract_error_events: [] } }),
+      expected: { status: "invalid", step: "check_auth", nonce_consumed: false },
+    },
+    {
+      name: "auth_error_after_first_line",
+      description: "Error(Auth, ...) appears only in later lines (account log output); the first line decides",
+      context,
+      rpc: rpc({
+        simulation: {
+          error: 'HostError: Error(WasmVm, InvalidAction)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:account, topics:[log], data:"Error(Auth, InvalidAction)"',
+          contract_error_events: [],
+        },
+      }),
+      expected: { status: "inconclusive", step: "check_auth" },
+    },
+    {
+      name: "auth_ok_without_event",
+      description: "First line is Error(Contract, #1) but no diagnostic error event from the verifier",
+      context,
+      rpc: rpc({ simulation: { ...authOk(), contract_error_events: [] } }),
+      expected: { status: "inconclusive", step: "check_auth" },
+    },
+    {
+      name: "auth_ok_from_account",
+      description: "Contract error 1 raised by the account, not by the verifier",
+      context,
+      rpc: rpc({ simulation: authOk("account") }),
+      expected: { status: "inconclusive", step: "check_auth" },
+    },
+    {
+      name: "simulation_succeeded",
+      description: "The call succeeded, which the reference verifier never does",
+      context,
+      rpc: rpc({ simulation: { succeeded: true } }),
+      expected: { status: "inconclusive", step: "check_auth" },
+    },
+    {
+      name: "other_host_error",
+      description: "Any other error is inconclusive and does not consume the nonce",
+      context: signIn,
+      rpc: rpc({ simulation: { error: "HostError: Error(Budget, ExceededLimit)", contract_error_events: [] } }),
+      expected: { status: "inconclusive", step: "check_auth", nonce_consumed: false },
+    },
+  ];
+  // One verifier address per case, so a cached pin result never carries over between cases.
+  return cases.map((c) => {
+    const verifier = contractId(`c-sign vector verifier/${c.name}`);
+    return { ...c, verifier, signature: encodeEntry(rawEntry(MINIMAL, verifier)) };
+  });
+}
+
+function walletDomain() {
+  const cases: { name: string; origin: string; developer_mode?: boolean; expected: { domain: string } | { refuse: true } }[] = [
+    { name: "https", origin: "https://demo.c-sign.dev", expected: { domain: "demo.c-sign.dev" } },
+    { name: "upper_case", origin: "https://Demo.C-Sign.DEV", expected: { domain: "demo.c-sign.dev" } },
+    { name: "default_port", origin: "https://demo.c-sign.dev:443", expected: { domain: "demo.c-sign.dev" } },
+    { name: "other_port", origin: "https://demo.c-sign.dev:8443", expected: { domain: "demo.c-sign.dev:8443" } },
+    { name: "internationalized", origin: "https://örnek.com", expected: { domain: "xn--rnek-4qa.com" } },
+    { name: "http", origin: "http://demo.c-sign.dev", expected: { refuse: true } },
+    { name: "localhost", origin: "http://localhost:5173", expected: { refuse: true } },
+    { name: "localhost_developer_mode", origin: "http://localhost:5173", developer_mode: true, expected: { domain: "localhost:5173" } },
+  ];
+  return cases;
+}
+
 export function buildVectors() {
   return {
     $comment:
       "C-Sign test vectors, version 1. Generated by packages/c-sign/scripts/vectors.ts; do not edit by hand. Keys are TEST-ONLY, derived from public seeds. XDR values are base64; hashes and signatures are hex.",
     spec: "docs/SPEC.md",
+    spec_version: SPEC_VERSION,
     reference_wasm_hash: REFERENCE_WASM_HASH,
     fixtures: {
       network_passphrase: NETWORK,
@@ -329,8 +542,18 @@ export function buildVectors() {
     },
     structural: {
       $comment:
-        "SPEC §6 steps 1 to 4: rejected before any network call. Defaults: clock skew 300 s; if issued_nonces is present this is a sign-in, the nonce must be in it and issued_at at most 300 s old (plus skew).",
+        "SPEC §6 steps 1 to 4: rejected before any network call. now is the RP's clock in Unix seconds. Time checks allow at most 60 s of clock skew; every case here fails under any skew from 0 to 60 s. If issued_nonces is present this is a sign-in: the nonce must be listed, unused, and issued no more than 300 s (the challenge lifetime) before now, with no skew added.",
       cases: structural(),
+    },
+    verification: {
+      $comment:
+        "SPEC §6 steps 2 and 5 to 8, against the RPC state in rpc: the network it serves, its latest ledger and that ledger's close time, the verifier instance (wasm with a hash, external_ref, missing or archived) and the enforcing simulation (succeeded, or the error text and the contract error events in its diagnostic events, raised by the verifier or by the account). Each case has its own verifier address, signature_expiration_ledger 1000000 and the minimal message; context is as in structural. requirement SHOULD marks a SHOULD of the SPEC. nonce_consumed is whether the RP marks msg.nonce as used.",
+      cases: verification(),
+    },
+    wallet_domain: {
+      $comment:
+        "SPEC §5 item 1 and §2: the domain a wallet writes for the origin the platform reports. refuse: the wallet does not sign with this origin as a verified domain.",
+      cases: walletDomain(),
     },
   };
 }
