@@ -1,12 +1,12 @@
 # C-Sign: signed messages for Stellar contract accounts
 
-**Status:** draft specification, reference verifier deployed on testnet, TypeScript library, [15 testnet experiments](docs/EXPERIMENTS.md) and a passkey sign-in demo.
+**Status:** draft specification, reference verifier deployed on testnet, TypeScript library, [25 testnet experiments](docs/EXPERIMENTS.md), a [threat model](docs/THREAT-MODEL.md) and a passkey sign-in demo.
 
 **Live demo: [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app)** (testnet)
 
 Read the [project overview](C-Sign-Overview.pdf) first, then the [draft specification](docs/SPEC.md).
 
-C-Sign lets a Stellar contract account (a `C…` address: passkey wallets, multisig accounts, agent wallets with spending policies) sign a human-readable message, and lets anyone verify that signature against the account's **current** on-chain rules, without submitting a transaction and without paying a fee. It is the counterpart of [SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md) for contract accounts, discussed in [stellar-protocol#2027](https://github.com/stellar/stellar-protocol/issues/2027).
+C-Sign lets a Stellar contract account (a `C…` address: passkey wallets, multisig accounts, agent wallets with spending policies) sign a human-readable message, and lets anyone verify that signature against the account's **current** on-chain rules, without submitting a transaction and without paying a fee. It is the counterpart of [SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md) for contract accounts, discussed in [stellar-protocol#2045](https://github.com/stellar/stellar-protocol/discussions/2045) (earlier in issue [#2027](https://github.com/stellar/stellar-protocol/issues/2027)).
 
 ## How it works
 

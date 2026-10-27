@@ -1,6 +1,6 @@
 # C-Sign: Signed Messages for Stellar Contract Accounts
 
-**Project overview** · 28 September 2026 · Seyit ([@sayweer](https://github.com/sayweer))
+**Project overview** · updated 27 October 2026 · Seyit ([@sayweer](https://github.com/sayweer))
 
 | | |
 |---|---|
@@ -55,7 +55,9 @@ SDF did not close the question or point to an existing solution. I opened the de
 - There should be **no "canonical" verifier contract**; wallets should be free to choose who owns the verifier.
 - He asked the SEP-45 authors (Leigh McCulloch and Marcelo Salloum) to weigh in on the nonce question.
 
-The design in this repository has been updated accordingly: [docs/SPEC.md](SPEC.md) is now written as a new SEP following the SEP template, the verifier is trusted by its code hash instead of a fixed address, and the SEP-43 change lives in its own document.
+On 20 October I posted the testnet results to #2027, including the answer to the nonce question: a signature submitted on-chain fails and leaves the nonce unused. On 22 October I moved the SEP discussion to [stellar-protocol Discussion #2045](https://github.com/stellar/stellar-protocol/discussions/2045), the step new SEPs take before a pull request. Eunomia, an agent treasury on Soroban, replied there that it would likely be an early user.
+
+The design in this repository has been updated accordingly: [docs/SPEC.md](SPEC.md) is now written as a new SEP following the SEP template, the verifier is trusted by its code hash instead of a fixed address, and the SEP-43 change lives in its own document. After a threat model ([THREAT-MODEL.md](THREAT-MODEL.md)) the specification is at version 0.0.2.
 
 ## How it works
 
@@ -106,7 +108,7 @@ The same afternoon Alice pays for an x402-metered API with her smart account. Th
 
 ## Why now
 
-- **SDF wants this solved before SEP-43 is finalized** and has now asked for a dedicated issue.
+- **SDF wants this solved before SEP-43 is finalized** and has asked for a new SEP as the counterpart of SEP-53.
 - **Nobody is building it.** Among the 46 projects funded in SCF #44, the 40 funded in SCF #45, the Türkiye chapter's Instawards cohorts, OpenZeppelin's smart-account roadmap, `stellar/smart-account-kit` and `stellar/passkey-kit`, there is no message-signing standard or verifier for contract accounts (checked again on 28 September 2026).
 - **The pieces are in place.** V2 credentials (CAP-71), enforcing simulation in stellar-rpc 23, `SimulationAuthMode` in js-stellar-sdk, and the SEP-45 precedent all exist. C-Sign combines them; it does not need new protocol features.
 
@@ -117,13 +119,15 @@ The same afternoon Alice pays for an x402-metered API with her smart account. Th
 - **TypeScript library (`packages/c-sign`).** Message encoding, entry building, OpenZeppelin signing and `verifyMessage`, which runs the checks of the draft SEP in order and answers `valid`, `invalid` or `inconclusive`. 31 offline unit tests run in CI.
 - **25 testnet experiments, all passing, with transaction links ([EXPERIMENTS.md](EXPERIMENTS.md)).** A valid signature submitted on-chain fails and leaves the account's nonce unused, and it still verifies afterwards; a fake verifier is caught by hash pinning; tampering, another domain, another account, expiry and nonce replay are rejected; after a key rotation the old signature is invalid. Median verification time is about half a second.
 - **`docs/SPEC.md`**: the draft SEP "Signed Messages for Contract Accounts", written to the SEP template, with the verification algorithm, wallet rules, design rationale and security concerns. **`docs/SEP-43-CHANGE.md`**: the separate wallet-interface proposal.
-- **`docs/ROADMAP.md`**: what is done and what comes next: more account types in the experiments, the SEP pull request, wallet integrations and mainnet.
+- **`docs/THREAT-MODEL.md`**: trust assumptions, threats with the test that covers each, and the gaps the library still has against SPEC v0.0.2.
+- **Test vectors (`vectors/c-sign-v1.json`)**: language-neutral vectors for message encoding, entries, OpenZeppelin signing, the verification checks and the wallet's `domain`, checked in CI.
+- **`docs/ROADMAP.md`**: what is done and what comes next: the library update to SPEC v0.0.2, the SEP pull request, wallet integrations and mainnet.
 
 ## Main risks
 
 | Risk | How it is handled |
 |---|---|
-| The signer side differs by account type: OpenZeppelin stellar-accounts 0.8.0 changed its auth digest (C-Sign signs both the old and the new one), passkey-kit and smart-account-kit are not drop-in compatible, `signAuthEntry` means different things in different wallets. | One adapter per account type with its own test vectors. OpenZeppelin accounts with Ed25519 and passkey signers are validated on testnet, and a 0.8.0 account with an Ed25519 signer; other account types come next; delegated signers (CAP-71) later. |
+| The signer side differs by account type: OpenZeppelin stellar-accounts 0.8.0 changed its auth digest (C-Sign signs both the old and the new one), passkey-kit and smart-account-kit are not drop-in compatible, `signAuthEntry` means different things in different wallets. | One adapter per account type with its own test vectors. OpenZeppelin accounts with Ed25519 and passkey signers are validated on testnet, a 0.8.0 account with an Ed25519 signer, and a minimal non-OpenZeppelin account; passkey-kit and multisig wallets come next; delegated signers (CAP-71) later. |
 | The `AUTH_OK` revert pattern is new on Stellar. | Confirmed on testnet: a submitted signature fails, the on-chain trace shows the account accepting it and the verifier raising `AUTH_OK`, and the nonce stays unused ([EXPERIMENTS.md](EXPERIMENTS.md), E2). The same idea was suggested for SEP-45 and set aside only because the server builds entries there. An RP-bound, non-reverting variant is documented as a fallback. |
 | The cheapest answer is "reject `signMessage` on C addresses", and some teams do that today. | The design is on SDF's table; a pull request to `stellar/smart-account-kit` turns substitution risk into partnership. |
 | Off-chain verification trusts the RPC. | Same model as ERC-1271 with `eth_call`; documented, with own-RPC and two-provider cross-check as options. |
@@ -133,7 +137,7 @@ The same afternoon Alice pays for an x402-metered API with her smart account. Th
 - Live demo: [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app)
 - Repository: [github.com/sayweer/c-sign](https://github.com/sayweer/c-sign)
 - Testnet evidence: [docs/EXPERIMENTS.md](EXPERIMENTS.md)
-- Draft specification: [docs/SPEC.md](SPEC.md) · Roadmap: [docs/ROADMAP.md](ROADMAP.md)
-- SDF issues: [stellar-protocol#2027](https://github.com/stellar/stellar-protocol/issues/2027) (this proposal) · [#1928](https://github.com/stellar/stellar-protocol/issues/1928) (origin)
+- Draft specification: [docs/SPEC.md](SPEC.md) · Threat model: [docs/THREAT-MODEL.md](THREAT-MODEL.md) · Roadmap: [docs/ROADMAP.md](ROADMAP.md)
+- SDF issues: [Discussion #2045](https://github.com/stellar/stellar-protocol/discussions/2045) (this proposal) · [#2027](https://github.com/stellar/stellar-protocol/issues/2027) (first issue) · [#1928](https://github.com/stellar/stellar-protocol/issues/1928) (origin)
 - Wallet interface change: [docs/SEP-43-CHANGE.md](SEP-43-CHANGE.md)
 - Standards referenced: SEP-53, SEP-43, SEP-45, CAP-71

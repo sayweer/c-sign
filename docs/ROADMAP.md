@@ -4,8 +4,8 @@ Everything in the first phase runs on Stellar **testnet**. No checkpoint depends
 
 ## Done
 
-- Design comment on [#1928](https://github.com/stellar/stellar-protocol/issues/1928#issuecomment-5823338114) and dedicated issue [#2027](https://github.com/stellar/stellar-protocol/issues/2027), as SDF asked.
-- Draft SEP "Signed Messages for Contract Accounts" ([SPEC.md](SPEC.md)) following the SEP template, and the separate SEP-43 proposal ([SEP-43-CHANGE.md](SEP-43-CHANGE.md)).
+- Design comment on [#1928](https://github.com/stellar/stellar-protocol/issues/1928#issuecomment-5823338114) and dedicated issue [#2027](https://github.com/stellar/stellar-protocol/issues/2027), as SDF asked; testnet results posted there, then the SEP discussion [#2045](https://github.com/stellar/stellar-protocol/discussions/2045) opened.
+- Draft SEP "Signed Messages for Contract Accounts" ([SPEC.md](SPEC.md)) following the SEP template, and the separate SEP-43 proposal ([SEP-43-CHANGE.md](SEP-43-CHANGE.md)); version 0.0.2 after a [threat model](THREAT-MODEL.md).
 - Reference verifier: one function, no admin, no storage, message as a map; 5 unit tests; reproducible Wasm with a pinned hash checked in CI.
 - Two instances of the reference verifier on testnet plus the two experiment fixtures, from an idempotent script ([README](../README.md#testnet-deployments), [deployments/testnet.json](../deployments/testnet.json)).
 - TypeScript library `packages/c-sign`: message encoding, entry building, `verifyMessage` with the three-state decision, OpenZeppelin Ed25519 signing for stellar-accounts 0.7.x and 0.8.0; 31 offline unit tests in CI.
@@ -14,7 +14,7 @@ Everything in the first phase runs on Stellar **testnet**. No checkpoint depends
 - Offline test vectors in [vectors/c-sign-v1.json](../vectors/c-sign-v1.json): message encoding, entries and signature payloads, OpenZeppelin signing, the checks of SPEC §6 and the wallet's `domain`, following SPEC v0.0.2; cross-checked against the Rust XDR implementation.
 - Passkey sign-in demo, live at [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app) ([source](../apps/demo)), with a verification inspector and the key-rotation scene; its wallet flow is tested end to end on testnet with a software passkey.
 
-Still open from phase 1: a walkthrough video, a separate-origin verifier, and the SEP pull request with the vectors and measured limits.
+Still open from phase 1: the library update to SPEC v0.0.2 (the [known gaps](THREAT-MODEL.md#known-gaps-in-the-reference-implementation)), SEP-53 for `G…` accounts, the x402 adapter, the conformance suite in CI against testnet, the two-origin demo and its walkthrough video, the kit or SDK pull request, and the SEP pull request.
 
 ## Phase 1: first 30 days
 
@@ -33,7 +33,7 @@ Still open from phase 1: a walkthrough video, a separate-origin verifier, and th
 ### Week 2: TypeScript library
 
 - `verifyMessage`: structural checks, invocation rebuild, verifier hash pinning, enforcing simulation and the three-state decision (`valid` / `invalid` / `inconclusive`).
-- `buildMessageAuthEntry` and signing helpers for OpenZeppelin smart accounts and simple ed25519 accounts; SEP-53 for `G…` accounts.
+- `buildMessageEntry` and signing helpers for OpenZeppelin smart accounts and simple ed25519 accounts; SEP-53 for `G…` accounts.
 - A thin adapter with the shape x402's sign-in-with-x expects: `({ address, message, signature }) => Promise<boolean>`.
 
 ### Week 3: conformance and demo
@@ -65,6 +65,6 @@ Signing differs by account type: OpenZeppelin accounts sign a digest that commit
 
 - **Consumer layer:** CAIP-122 `stellar` profile, an x402 sign-in-with-x verifier for Stellar, server middleware, an off-chain approval example.
 - **Standard and distribution:** SEP-43 pull request, wallet display guidance, a wallet-side reference implementation, a Stellar Wallets Kit module, counterfactual (not yet deployed) accounts.
-- **Mainnet:** instances on mainnet, a small audit and threat model, wallet and kit integrations, usage metrics.
+- **Mainnet:** instances on mainnet, a small audit, wallet and kit integrations, usage metrics.
 
 SEP acceptance is an undated external event and is not a condition of any phase.
