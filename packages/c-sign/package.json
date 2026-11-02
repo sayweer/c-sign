@@ -1,7 +1,23 @@
 {
   "name": "c-sign",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sign and verify messages with Stellar contract accounts (C-Sign)",
+  "keywords": [
+    "stellar",
+    "soroban",
+    "smart-account",
+    "passkey",
+    "sign-in",
+    "signature",
+    "sep-53"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sayweer/c-sign.git",
+    "directory": "packages/c-sign"
+  },
+  "homepage": "https://github.com/sayweer/c-sign#readme",
+  "bugs": "https://github.com/sayweer/c-sign/issues",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +36,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "tsx e2e/run.ts",
-    "vectors": "tsx scripts/vectors.ts"
+    "vectors": "tsx scripts/vectors.ts",
+    "prepack": "tsc -p tsconfig.build.json"
   },
   "peerDependencies": {
     "@stellar/stellar-sdk": "^16.3.0"
@@ -32,5 +49,6 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"
-  }
+  },
+  "sideEffects": false
 }
