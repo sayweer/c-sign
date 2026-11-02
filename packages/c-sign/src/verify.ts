@@ -206,7 +206,16 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
     let wasmHash = pinnedInstances.get(cacheKey);
     if (!wasmHash) {
       try {
-        const instance = await server.getContractData(verifierId, xdr.ScVal.scvLedgerKeyContractInstance(), rpc.Durability.Persistent);
+        // getLedgerEntries, not getContractData: the latter reports every failure as not found.
+        const key = xdr.LedgerKey.contractData(
+          new xdr.LedgerKeyContractData({
+            contract: Address.fromString(verifierId).toScAddress(),
+            key: xdr.ScVal.scvLedgerKeyContractInstance(),
+            durability: xdr.ContractDataDurability.persistent(),
+          }),
+        );
+        const [instance] = (await server.getLedgerEntries(key)).entries;
+        if (!instance) return fail("pin", "No contract at the verifier address", ctx);
         if (instance.liveUntilLedgerSeq !== undefined && instance.liveUntilLedgerSeq < latestLedger) {
           return inconclusive("pin", "Verifier instance is archived", ctx);
         }

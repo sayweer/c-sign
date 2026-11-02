@@ -21,7 +21,6 @@ const vectors = buildVectors();
  * that starts passing fails the test, so the list only shrinks.
  */
 const KNOWN_GAPS: Record<string, string> = {
-  "verification/instance_missing": "Missing verifier instance",
   "verification/rpc_other_network": "Network and RPC",
   "verification/rpc_stale": "Network and RPC",
   "verification/valid_sign_in#nonce": "Nonce",
@@ -152,7 +151,7 @@ function stubRpc(state: (typeof vectors.verification.cases)[number]["rpc"], veri
     protocolVersion: "25",
     closeTime: String(state.latest_ledger_close_time),
   } as never);
-  // getContractData goes through this private method, so a missing entry looks as it does on a real RPC.
+  // getLedgerEntries goes through this private method, so a missing entry looks as it does on a real RPC.
   const ledgerEntries = proto as unknown as { _getLedgerEntries: (...keys: xdr.LedgerKey[]) => Promise<unknown> };
   vi.spyOn(ledgerEntries, "_getLedgerEntries").mockImplementation(async (...keys) => {
     const instance = state.verifier_instance;
