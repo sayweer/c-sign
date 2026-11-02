@@ -1,6 +1,6 @@
 # C-Sign threat model
 
-This document covers [SPEC.md](SPEC.md) version 0.0.2, the reference verifier with Wasm hash `2a5004a7…c299`, the TypeScript library `packages/c-sign` 0.1.0 and the passkey demo in `apps/demo`, as of 23 October 2026. It is a design review backed by testnet experiments and offline tests, not an audit. Section numbers (§) refer to the specification.
+This document covers [SPEC.md](SPEC.md) version 0.0.2, the reference verifier with Wasm hash `2a5004a7…c299`, the TypeScript library `packages/c-sign` 0.2.0 and the passkey demo in `apps/demo`, as of 2 November 2026. It is a design review backed by testnet experiments and offline tests, not an audit. Section numbers (§) refer to the specification.
 
 ## Scope and assets
 
@@ -80,7 +80,7 @@ Testnet, recorded in [EXPERIMENTS.md](EXPERIMENTS.md) with transaction links and
 Offline, in a lab kept outside this repository:
 
 - An offline Soroban host test (soroban-sdk 28) with the reference verifier, a minimal account and a contract that calls the verifier and catches its error. The contract recorded the authorization repeatedly, in separate transactions and twice in one, and the account's nonce stayed unused. This is the basis of the bearer-credential text.
-- Library decision tests against a scriptable mock RPC, covering type confusion, unsorted, duplicate and unknown keys, invalid UTF-8, error-code prefixes such as `#10`, an account raising its own code 1, and the gaps listed below.
+- Library decision tests against a scriptable mock RPC, covering type confusion, unsorted, duplicate and unknown keys, invalid UTF-8, error-code prefixes such as `#10`, and an account raising its own code 1.
 - Read-only testnet probes: a forged signature for a real OpenZeppelin account and a signature for a nonexistent account are `invalid`; oversized credentials make the RPC fail.
 - Diagnostic events were present in enforce-mode simulations on four public RPC providers (testnet and mainnet) on 22 October 2026.
 - The Wasm hash was reproduced locally, and the library and verifier unit tests pass.
@@ -90,11 +90,7 @@ Planned: the failing direction of the verifier-event check on testnet, wrapper c
 
 ## Known gaps in the reference implementation
 
-The specification is the target. The library follows 0.0.2 except for the rows below, which are planned for library v0.2. The test vectors cover the v0.0.2 rules; the cases the library fails are listed by row in `KNOWN_GAPS` in [test/vectors.test.ts](../packages/c-sign/test/vectors.test.ts), and the test fails when a listed case starts passing.
-
-| Area | Current behaviour | v0.0.2 rule |
-|---|---|---|
-| Wallet side | No validator for entries received from an application; the OpenZeppelin signing helper signs any entry | §5 items 3 and 5 |
+The library passes every case of the test vectors, which cover the rules of 0.0.2. It does not do what only a wallet can: `checkMessageRequest` and `parseMessageEntry` cover §5 items 1 and 3 and return the decoded fields, but displaying them (item 2), choosing the expiration (item 4), routing signing requests (item 5) and checking the account's rules (items 6 and 7) stay with the wallet. The nonce's binding to a session and a statement (§6 step 4, SHOULD) is left to the RP's `NonceStore`.
 
 Interoperability: smart-account-kit 0.8.0 still signs the pre-0.8 digest, so passkey signatures through it do not verify for stellar-accounts 0.8.0 accounts until the kit is updated. The library signs both digests.
 

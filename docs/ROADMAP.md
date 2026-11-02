@@ -8,13 +8,13 @@ Everything in the first phase runs on Stellar **testnet**. No checkpoint depends
 - Draft SEP "Signed Messages for Contract Accounts" ([SPEC.md](SPEC.md)) following the SEP template, and the separate SEP-43 proposal ([SEP-43-CHANGE.md](SEP-43-CHANGE.md)); version 0.0.2 after a [threat model](THREAT-MODEL.md).
 - Reference verifier: one function, no admin, no storage, message as a map; 5 unit tests; reproducible Wasm with a pinned hash checked in CI.
 - Two instances of the reference verifier on testnet plus the two experiment fixtures, from an idempotent script ([README](../README.md#testnet-deployments), [deployments/testnet.json](../deployments/testnet.json)).
-- TypeScript library `packages/c-sign`: message encoding, entry building, `verifyMessage` with the three-state decision, OpenZeppelin Ed25519 signing for stellar-accounts 0.7.x and 0.8.0; 31 offline unit tests in CI.
+- TypeScript library `packages/c-sign`: message encoding, entry building, `verifySignIn` and `verifyMessage` with the three-state decision, the wallet-side checks, OpenZeppelin Ed25519 signing for stellar-accounts 0.7.x and 0.8.0; follows SPEC v0.0.2 and passes every test vector; 52 offline unit tests in CI.
 - Testnet experiments 1 to 4 and the latency check, recorded with transaction links in [EXPERIMENTS.md](EXPERIMENTS.md). The go/no-go gate passed: a signature submitted on-chain fails and leaves the nonce unused.
 - Experiments for a 2-of-3 threshold-policy account (T1 to T3), a minimal Ed25519 account ([fixture](../experiments/contracts/ed25519-account), M1 and M2), size limits (S1, S2) and an OpenZeppelin stellar-accounts 0.8.0 account (O1 to O3).
 - Offline test vectors in [vectors/c-sign-v1.json](../vectors/c-sign-v1.json): message encoding, entries and signature payloads, OpenZeppelin signing, the checks of SPEC §6 and the wallet's `domain`, following SPEC v0.0.2; cross-checked against the Rust XDR implementation.
 - Passkey sign-in demo, live at [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app) ([source](../apps/demo)), with a verification inspector and the key-rotation scene; its wallet flow is tested end to end on testnet with a software passkey.
 
-Still open from phase 1: the library update to SPEC v0.0.2 (the [known gaps](THREAT-MODEL.md#known-gaps-in-the-reference-implementation)), SEP-53 for `G…` accounts, the x402 adapter, the conformance suite in CI against testnet, the two-origin demo and its walkthrough video, the kit or SDK pull request, and the SEP pull request.
+Still open from phase 1: the npm release, SEP-53 for `G…` accounts, the x402 adapter, the conformance suite in CI against testnet, the two-origin demo and its walkthrough video, the kit or SDK pull request, and the SEP pull request.
 
 ## Phase 1: first 30 days
 
