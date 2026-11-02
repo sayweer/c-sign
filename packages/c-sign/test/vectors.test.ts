@@ -21,10 +21,6 @@ const vectors = buildVectors();
  * that starts passing fails the test, so the list only shrinks.
  */
 const KNOWN_GAPS: Record<string, string> = {
-  "structural/issued_in_future": "Time",
-  "structural/message_expired": "Time",
-  "structural/message_not_yet_valid": "Time",
-  "structural/stale_sign_in": "Time",
   "verification/instance_missing": "Missing verifier instance",
   "verification/rpc_other_network": "Network and RPC",
   "verification/rpc_stale": "Network and RPC",

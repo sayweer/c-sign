@@ -30,7 +30,7 @@ export interface VerifyOptions {
     checkNonce: (nonce: string) => boolean | Promise<boolean>;
     maxAgeSeconds?: number;
   };
-  /** Allowed clock skew in seconds (default 300). */
+  /** Allowed clock skew in seconds (default and maximum 60). Does not extend `maxAgeSeconds`. */
   clockSkewSeconds?: number;
   /** Unix seconds; defaults to now. */
   now?: number;
@@ -63,6 +63,8 @@ const LABELS: Record<VerifyStep["id"], string> = {
 };
 
 const ORDER = Object.keys(LABELS) as VerifyStep["id"][];
+
+const MAX_CLOCK_SKEW_SECONDS = 60;
 
 // A sign-in entry should not stay usable for more than about a day (SPEC §6 step 2).
 const MAX_SIGN_IN_EXPIRATION_LEDGERS = 17280;
@@ -162,7 +164,7 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
   }
 
   const now = opts.now ?? Math.floor(Date.now() / 1000);
-  const skew = opts.clockSkewSeconds ?? 300;
+  const skew = Math.min(opts.clockSkewSeconds ?? MAX_CLOCK_SKEW_SECONDS, MAX_CLOCK_SKEW_SECONDS);
   if (message.issuedAt > now + skew) return fail("freshness", "issued_at is in the future", ctx);
   if (message.expirationTime !== undefined && now > message.expirationTime + skew) {
     return fail("freshness", "Message expiration_time has passed", ctx);
@@ -170,7 +172,7 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
   if (message.notBefore !== undefined && now + skew < message.notBefore) return fail("freshness", "Message is not valid yet (not_before)", ctx);
   if (opts.freshness) {
     const maxAge = opts.freshness.maxAgeSeconds ?? 300;
-    if (now - message.issuedAt > maxAge + skew) return fail("freshness", `Issued ${now - message.issuedAt}s ago, max ${maxAge}s`, ctx);
+    if (now - message.issuedAt > maxAge) return fail("freshness", `Issued ${now - message.issuedAt}s ago, max ${maxAge}s`, ctx);
     if (!(await opts.freshness.checkNonce(message.nonce))) return fail("freshness", "Nonce was not issued here or was already used", ctx);
     pass("freshness", `Nonce ${message.nonce} accepted`);
   } else {

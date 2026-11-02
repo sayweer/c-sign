@@ -103,6 +103,11 @@ describe("verifyMessage, offline rules", () => {
     expect(replay.reason).toMatch(/Nonce/);
   });
 
+  it("caps clock skew at 60 s whatever the caller asks for", async () => {
+    const r = await verify(entry(), { now: now - 61, clockSkewSeconds: 3600 });
+    expect(r.reason).toMatch(/in the future/);
+  });
+
   it("reports RPC failure as inconclusive, never invalid", async () => {
     const r = await verify(entry());
     expect(r.status).toBe("inconclusive");
