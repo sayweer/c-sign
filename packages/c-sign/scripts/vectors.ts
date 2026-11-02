@@ -19,7 +19,7 @@ import {
   ozAuthDigest,
   ozAuthDigestPreimage,
   ozEd25519Signer,
-  signOzEntryWithEd25519,
+  signOzMessageWithEd25519,
   type OzDigestScheme,
   type OzEd25519Key,
   type SignedMessage,
@@ -205,7 +205,7 @@ function ozSigning() {
   return schemes.flatMap(({ scheme, suffix }) =>
     cases.map(({ name, description, keys, ruleIds }) => {
       const digest = ozAuthDigest(entry, NETWORK, scheme, ruleIds);
-      const signed = signOzEntryWithEd25519(entry, keys, NETWORK, scheme, ruleIds);
+      const signed = signOzMessageWithEd25519(entry, keys, NETWORK, scheme, ruleIds);
       const creds = signed.credentials().addressV2();
       return {
         name: name + suffix,

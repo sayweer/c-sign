@@ -43,7 +43,8 @@ const FORBIDDEN_CHARACTER = /[\p{Cc}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_
 // Lower-case host, then a port unless it is 443. A-label syntax only: Punycode itself is not validated.
 const DOMAIN_FORM = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::(\d{1,5}))?$/;
 
-const isDomainForm = (domain: string) => {
+/** True if `domain` has the form SPEC §2 requires. */
+export const isDomainForm = (domain: string) => {
   const match = DOMAIN_FORM.exec(domain);
   if (!match) return false;
   if (match[1] === undefined) return true;

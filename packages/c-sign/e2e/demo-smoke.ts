@@ -2,7 +2,7 @@
 //
 //   BASE_URL=http://localhost:5173 pnpm --filter c-sign exec tsx e2e/demo-smoke.ts
 import { Address, Keypair, Operation, TransactionBuilder, authorizeEntry, rpc, xdr } from "@stellar/stellar-sdk";
-import { buildMessageEntry, encodeEntry, ozEd25519Signer, signOzEntryWithEd25519 } from "../src/index.js";
+import { buildMessageEntry, encodeEntry, ozEd25519Signer, signOzMessageWithEd25519 } from "../src/index.js";
 import { OZ_ACCOUNT_WASM, deployments, ed25519Key, fundedKeypair, networkPassphrase, server } from "./testnet.js";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:5173";
@@ -65,7 +65,7 @@ async function main() {
   // 3. Sign in: challenge -> sign for this host -> verify sets a session cookie.
   const challenge = (await (await fetch(`${BASE}/api/challenge`)).json()) as { statement: string; nonce: string; issuedAt: number; token: string };
   const latest = (await server.getLatestLedger()).sequence;
-  const entry = signOzEntryWithEd25519(
+  const entry = signOzMessageWithEd25519(
     buildMessageEntry({
       verifierId: deployments.instances[0],
       account,

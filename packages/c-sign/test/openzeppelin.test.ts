@@ -7,7 +7,7 @@ import {
   ozAuthDigest,
   ozAuthDigestPreimage,
   ozEd25519Signer,
-  signOzEntryWithEd25519,
+  signOzMessageWithEd25519,
   type OzDigestScheme,
   type OzEd25519Key,
 } from "../src/index.js";
@@ -100,7 +100,7 @@ describe("OpenZeppelin auth digest", () => {
       ["preimage-v1", "legacy-concat"],
     ];
     for (const [scheme, other] of schemes) {
-      const signed = signOzEntryWithEd25519(entry, KEYS, networkPassphrase, scheme);
+      const signed = signOzMessageWithEd25519(entry, KEYS, networkPassphrase, scheme);
       const digest = ozAuthDigest(entry, networkPassphrase, scheme);
       const wrong = ozAuthDigest(entry, networkPassphrase, other);
       for (const key of KEYS) {

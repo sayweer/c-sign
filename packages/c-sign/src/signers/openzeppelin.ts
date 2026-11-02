@@ -1,5 +1,7 @@
 import { Address, hash, xdr, type Keypair } from "@stellar/stellar-sdk";
 import { addressCredentials, entrySignaturePayload } from "../entry.js";
+import { CSignError } from "../errors.js";
+import { isMessageEntry, parseMessageEntry } from "../wallet.js";
 
 /**
  * Signing helpers for OpenZeppelin smart accounts.
@@ -96,11 +98,39 @@ export const ozEd25519Signer = (key: OzEd25519Key): xdr.ScVal =>
   externalSigner(key.verifierId, Buffer.from(key.keypair.rawPublicKey()));
 
 /**
- * Signs an address-credential entry (any function, V1 or V2) for an
- * OpenZeppelin account whose rule requires exactly these Ed25519 keys.
- * Returns a signed copy; the input is left untouched.
+ * Signs an authorization entry for an OpenZeppelin account whose rule requires
+ * exactly these Ed25519 keys. Refuses a `verify_message` entry: a message is
+ * signed only in response to a message request (SPEC §5 item 5), with
+ * {@link signOzMessageWithEd25519}. Returns a signed copy.
  */
 export function signOzEntryWithEd25519(
+  entry: xdr.SorobanAuthorizationEntry,
+  keys: OzEd25519Key[],
+  networkPassphrase: string,
+  scheme: OzDigestScheme,
+  contextRuleIds: number[] = DEFAULT_CONTEXT_RULE_IDS,
+): xdr.SorobanAuthorizationEntry {
+  if (isMessageEntry(entry)) throw new CSignError("Refusing to sign a message entry as a generic authorization");
+  return unsafeSignOzEntry(entry, keys, networkPassphrase, scheme, contextRuleIds);
+}
+
+/**
+ * Signs a C-Sign message entry, after the offline checks of {@link parseMessageEntry}.
+ * A wallet calls {@link checkMessageRequest} first, for the origin and the verifier.
+ */
+export function signOzMessageWithEd25519(
+  entry: xdr.SorobanAuthorizationEntry,
+  keys: OzEd25519Key[],
+  networkPassphrase: string,
+  scheme: OzDigestScheme,
+  contextRuleIds: number[] = DEFAULT_CONTEXT_RULE_IDS,
+): xdr.SorobanAuthorizationEntry {
+  parseMessageEntry(entry);
+  return unsafeSignOzEntry(entry, keys, networkPassphrase, scheme, contextRuleIds);
+}
+
+/** Experiments only: signs any address-credential entry, valid or not, without checking it. */
+export function unsafeSignOzEntry(
   entry: xdr.SorobanAuthorizationEntry,
   keys: OzEd25519Key[],
   networkPassphrase: string,

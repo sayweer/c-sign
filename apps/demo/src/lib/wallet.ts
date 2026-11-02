@@ -8,7 +8,7 @@ import {
   REFERENCE_WASM_HASH,
   buildMessageEntry,
   encodeEntry,
-  signOzEntryWithEd25519,
+  signOzMessageWithEd25519,
   type SignedMessage,
 } from "c-sign";
 import { ED25519_VERIFIER, NETWORK_PASSPHRASE, OZ_ACCOUNT_WASM, RPC_URL, WEBAUTHN_VERIFIER } from "./config";
@@ -119,7 +119,7 @@ export async function signMessage(state: WalletState, message: SignedMessage, ve
   let entry = buildMessageEntry({ verifierId, account: state.account, message, expirationLedger: expiration });
   const recovery = recoveryKey(state);
   // Must match smart-account-kit's digest: both signatures go into one AuthPayload, and kit 0.8.0 signs legacy-concat.
-  if (recovery) entry = signOzEntryWithEd25519(entry, [{ keypair: recovery, verifierId: ED25519_VERIFIER }], NETWORK_PASSPHRASE, "legacy-concat");
+  if (recovery) entry = signOzMessageWithEd25519(entry, [{ keypair: recovery, verifierId: ED25519_VERIFIER }], NETWORK_PASSPHRASE, "legacy-concat");
   if (!state.passkeyRemoved) {
     await ensureConnected(state);
     entry = await getKit().signAuthEntry(entry, { contextRuleIds: [0], expiration });

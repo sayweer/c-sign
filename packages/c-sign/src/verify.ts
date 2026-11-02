@@ -259,15 +259,7 @@ async function run(
     let wasmHash = pinnedInstances.get(cacheKey);
     if (!wasmHash) {
       try {
-        // getLedgerEntries, not getContractData: the latter reports every failure as not found.
-        const key = xdr.LedgerKey.contractData(
-          new xdr.LedgerKeyContractData({
-            contract: Address.fromString(verifierId).toScAddress(),
-            key: xdr.ScVal.scvLedgerKeyContractInstance(),
-            durability: xdr.ContractDataDurability.persistent(),
-          }),
-        );
-        const [instance] = (await server.getLedgerEntries(key)).entries;
+        const instance = await readVerifierInstance(server, verifierId);
         if (!instance) return fail("pin", "No contract at the verifier address", ctx);
         if (instance.liveUntilLedgerSeq !== undefined && instance.liveUntilLedgerSeq < latestLedger) {
           return inconclusive("pin", "Verifier instance is archived", ctx);
@@ -318,6 +310,21 @@ async function run(
     return fail("check_auth", `Account rejected the signature: ${firstLine(simulationError)}`, withSim);
   }
   return inconclusive("check_auth", `Unexpected simulation result: ${firstLine(simulationError)}`, withSim);
+}
+
+/**
+ * The verifier's instance entry, or `undefined` if no contract exists there.
+ * Uses getLedgerEntries, not getContractData: the latter reports every failure as not found.
+ */
+export async function readVerifierInstance(server: rpc.Server, verifierId: string): Promise<rpc.Api.LedgerEntryResult | undefined> {
+  const key = xdr.LedgerKey.contractData(
+    new xdr.LedgerKeyContractData({
+      contract: Address.fromString(verifierId).toScAddress(),
+      key: xdr.ScVal.scvLedgerKeyContractInstance(),
+      durability: xdr.ContractDataDurability.persistent(),
+    }),
+  );
+  return (await server.getLedgerEntries(key)).entries[0];
 }
 
 /** True if a diagnostic error event from `verifierId` carries contract error AUTH_OK. */

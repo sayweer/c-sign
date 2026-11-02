@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { Address, Keypair, StrKey, hash, rpc, xdr } from "@stellar/stellar-sdk";
-import * as lib from "../src/index.js";
 import {
   decodeEntry,
+  domainFromOrigin,
   entrySignaturePayload,
   messageFromScVal,
   ozAuthDigest,
@@ -15,15 +15,6 @@ import {
 import { VECTORS_PATH, buildVectors, serializeVectors } from "../scripts/vectors.js";
 
 const vectors = buildVectors();
-
-/**
- * Vector cases the library does not pass yet, keyed `section/case`, with the row of the
- * Known gaps table in docs/THREAT-MODEL.md that closes them (library v0.2). A listed case
- * that starts passing fails the test, so the list only shrinks.
- */
-const KNOWN_GAPS: Record<string, string> = {
-  ...Object.fromEntries(vectors.wallet_domain.cases.map((c) => [`wallet_domain/${c.name}`, "Wallet side"])),
-};
 
 const results = new Map<string, boolean>();
 const record = (key: string, passes: boolean) => results.set(key, passes);
@@ -100,22 +91,16 @@ describe("test vectors", () => {
   });
 
   it("wallet domain cases", () => {
-    const domainFromOrigin = (lib as Record<string, unknown>).domainFromOrigin as
-      | ((origin: string, opts?: { developerMode?: boolean }) => string | undefined)
-      | undefined;
     for (const v of vectors.wallet_domain.cases) {
-      const got = domainFromOrigin?.(v.origin, { developerMode: v.developer_mode });
+      const got = domainFromOrigin(v.origin, { developerMode: v.developer_mode });
       const want = "domain" in v.expected ? v.expected.domain : undefined;
-      record(`wallet_domain/${v.name}`, domainFromOrigin !== undefined && got === want);
+      record(`wallet_domain/${v.name}`, got === want);
     }
   });
 
   afterAll(() => {
-    // Runs after every case was recorded: each case passes unless it is a known gap, and no known gap passes.
-    const failing = [...results].filter(([key, passes]) => !passes && !(key in KNOWN_GAPS)).map(([key]) => key);
-    const closed = Object.keys(KNOWN_GAPS).filter((key) => results.get(key) === true);
-    const stale = Object.keys(KNOWN_GAPS).filter((key) => !results.has(key));
-    expect({ failing, closed, stale }).toEqual({ failing: [], closed: [], stale: [] });
+    // Runs after every case was recorded.
+    expect([...results].filter(([, passes]) => !passes).map(([key]) => key)).toEqual([]);
   });
 });
 
