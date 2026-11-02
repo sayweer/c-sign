@@ -38,7 +38,6 @@ const KNOWN_GAPS: Record<string, string> = {
       "domain_u_label",
     ].map((name) => [`messages.invalid/${name}`, "Characters and domain form"]),
   ),
-  "structural/oversized_signature": "Input size",
   "structural/message_control_character": "Characters and domain form",
   "structural/issued_in_future": "Time",
   "structural/message_expired": "Time",

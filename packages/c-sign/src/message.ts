@@ -4,6 +4,7 @@ import { CSignError } from "./errors.js";
 export const MESSAGE_VERSION = "1";
 export const MAX_STATEMENT_BYTES = 1024;
 export const MAX_MESSAGE_XDR_BYTES = 2048;
+export const MAX_ENTRY_XDR_BYTES = 16384;
 
 /** The human-readable message a contract account signs (SPEC §2). Times are Unix seconds. */
 export interface SignedMessage {

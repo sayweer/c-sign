@@ -2,7 +2,7 @@ import { Account, Address, Keypair, Operation, TransactionBuilder, rpc, xdr } fr
 import { AUTH_OK, REFERENCE_WASM_HASH, VERIFY_FUNCTION } from "./constants.js";
 import { CSignError } from "./errors.js";
 import { buildVerifyInvocation } from "./entry.js";
-import { messageFromScVal, type SignedMessage } from "./message.js";
+import { MAX_ENTRY_XDR_BYTES, messageFromScVal, type SignedMessage } from "./message.js";
 
 export type VerifyStatus = "valid" | "invalid" | "inconclusive";
 export type StepStatus = "pass" | "fail" | "skip" | "error";
@@ -64,6 +64,9 @@ const LABELS: Record<VerifyStep["id"], string> = {
 
 const ORDER = Object.keys(LABELS) as VerifyStep["id"][];
 
+// Longest base64 of an entry at the size limit: 4 characters per 3 bytes, rounded up.
+const MAX_ENTRY_BASE64_CHARS = Math.ceil(MAX_ENTRY_XDR_BYTES / 3) * 4;
+
 // A pinned instance cannot change its code, so a positive check can be cached.
 const pinnedInstances = new Map<string, string>();
 
@@ -91,9 +94,13 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
   };
 
   // 1. Decode
+  const encoded = opts.signature.trim();
+  if (encoded.length > MAX_ENTRY_BASE64_CHARS) return fail("decode", `Signature is longer than ${MAX_ENTRY_BASE64_CHARS} characters`);
+  const decoded = Buffer.from(encoded, "base64");
+  if (decoded.length > MAX_ENTRY_XDR_BYTES) return fail("decode", `Entry is larger than ${MAX_ENTRY_XDR_BYTES} bytes`);
   let entry: xdr.SorobanAuthorizationEntry;
   try {
-    entry = xdr.SorobanAuthorizationEntry.fromXDR(opts.signature.trim(), "base64");
+    entry = xdr.SorobanAuthorizationEntry.fromXDR(decoded);
   } catch {
     return fail("decode", "Not a base64 XDR SorobanAuthorizationEntry");
   }

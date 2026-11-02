@@ -36,6 +36,14 @@ describe("verifyMessage, offline rules", () => {
     expect(stepStatus(r, "decode")).toBe("fail");
   });
 
+  it("applies the size limits before decoding", async () => {
+    const tooLong = await verify("A".repeat(21852));
+    expect(tooLong.reason).toMatch(/longer than 21848/);
+    const tooLarge = await verify(Buffer.alloc(16385).toString("base64"));
+    expect(tooLarge.reason).toMatch(/larger than 16384/);
+    expect(stepStatus(tooLarge, "decode")).toBe("fail");
+  });
+
   it("rejects a call to another function", async () => {
     const e = entry();
     e.rootInvocation().function().contractFn().functionName("transfer");
