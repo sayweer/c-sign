@@ -64,6 +64,9 @@ const LABELS: Record<VerifyStep["id"], string> = {
 
 const ORDER = Object.keys(LABELS) as VerifyStep["id"][];
 
+// A sign-in entry should not stay usable for more than about a day (SPEC §6 step 2).
+const MAX_SIGN_IN_EXPIRATION_LEDGERS = 17280;
+
 // Longest base64 of an entry at the size limit: 4 characters per 3 bytes, rounded up.
 const MAX_ENTRY_BASE64_CHARS = Math.ceil(MAX_ENTRY_XDR_BYTES / 3) * 4;
 
@@ -186,6 +189,9 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
   const expiration = creds.signatureExpirationLedger();
   if (expiration < latestLedger) {
     return fail("expiration", `Expired at ledger ${expiration} (now ${latestLedger})`, ctx);
+  }
+  if (opts.freshness && expiration - latestLedger > MAX_SIGN_IN_EXPIRATION_LEDGERS) {
+    return fail("expiration", `Sign-in entry expires ${expiration - latestLedger} ledgers from now, max ${MAX_SIGN_IN_EXPIRATION_LEDGERS}`, ctx);
   }
   pass("expiration", `Valid until ledger ${expiration} (now ${latestLedger})`);
 
