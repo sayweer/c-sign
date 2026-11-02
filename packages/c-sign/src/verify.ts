@@ -229,7 +229,7 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
     steps.push({ id: "check_auth", label: LABELS.check_auth, status: "pass", detail: `Error(Contract, #${AUTH_OK}) from the verifier: authorized` });
     return result("valid", "The account authorized this message under its current rules", withSim);
   }
-  if (simulationError.includes("Error(Auth,")) {
+  if (firstLine(simulationError).startsWith("HostError: Error(Auth,")) {
     return fail("check_auth", `Account rejected the signature: ${firstLine(simulationError)}`, withSim);
   }
   return inconclusive("check_auth", `Unexpected simulation result: ${firstLine(simulationError)}`, withSim);

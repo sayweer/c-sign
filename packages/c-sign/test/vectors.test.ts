@@ -48,7 +48,6 @@ const KNOWN_GAPS: Record<string, string> = {
   "verification/instance_missing": "Missing verifier instance",
   "verification/rpc_other_network": "Network and RPC",
   "verification/rpc_stale": "Network and RPC",
-  "verification/auth_error_after_first_line": "Decision",
   "verification/valid_sign_in#nonce": "Nonce",
   "verification/sign_in_expiration_too_far#nonce": "Nonce",
   "verification/account_rejects#nonce": "Nonce",
