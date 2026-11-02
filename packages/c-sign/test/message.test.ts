@@ -22,6 +22,30 @@ describe("message", () => {
     expect(keys).toEqual(["domain", "issued_at", "nonce", "statement", "version"]);
   });
 
+  it("accepts only the domain form of SPEC §2", () => {
+    for (const domain of ["demo.c-sign.dev", "localhost:5173", "xn--rnek-4qa.com:8443", "127.0.0.1:65535"]) {
+      expect(() => messageToScVal({ ...base, domain }), domain).not.toThrow();
+    }
+    for (const domain of ["a.b:443", "a.b:0", "a.b:080", "a.b:65536", "a..b", "-a.b", "a-.b", "a b", "[::1]:8443"]) {
+      expect(() => messageToScVal({ ...base, domain }), domain).toThrow(CSignError);
+    }
+  });
+
+  it("rejects forbidden characters in every string field, not only the statement", () => {
+    for (const bad of ["\u0000", "\u2029", "\u00ad", "\ufeff", "\ud800"]) {
+      expect(() => messageToScVal({ ...base, statement: `a${bad}b` }), JSON.stringify(bad)).toThrow(CSignError);
+      expect(() => messageToScVal({ ...base, uri: `a${bad}b` }), JSON.stringify(bad)).toThrow(CSignError);
+      expect(() => messageToScVal({ ...base, requestId: `a${bad}b` }), JSON.stringify(bad)).toThrow(CSignError);
+    }
+  });
+
+  it("does not let the decoder hide a leading byte order mark", () => {
+    const val = messageToScVal(base, false);
+    const statement = (val.map() ?? []).find((e) => e.key().sym().toString() === "statement")!;
+    statement.val(xdr.ScVal.scvString(Buffer.from("\ufeffSign in", "utf8")));
+    expect(() => messageFromScVal(xdr.ScVal.fromXDR(val.toXDR()))).toThrow(/forbidden character/);
+  });
+
   it("rejects unknown keys", () => {
     const val = messageToScVal(base);
     val.map()!.push(new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("zzz"), val: xdr.ScVal.scvString("x") }));

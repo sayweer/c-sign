@@ -37,6 +37,30 @@ const FIELDS: Record<string, { prop: keyof SignedMessage; type: FieldType; requi
 
 const utf8Length = (s: string) => new TextEncoder().encode(s).length;
 
+// Cc, Zl, Zp and Default_Ignorable_Code_Point (SPEC §2); Cs catches a lone surrogate, which has no UTF-8 form.
+const FORBIDDEN_CHARACTER = /[\p{Cc}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+
+// Lower-case host, then a port unless it is 443. A-label syntax only: Punycode itself is not validated.
+const DOMAIN_FORM = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::(\d{1,5}))?$/;
+
+const isDomainForm = (domain: string) => {
+  const match = DOMAIN_FORM.exec(domain);
+  if (!match) return false;
+  if (match[1] === undefined) return true;
+  const port = Number(match[1]);
+  return !match[1].startsWith("0") && port !== 443 && port <= 65535;
+};
+
+/** Strict UTF-8: a decoder that replaced bad bytes would hide them from the character rule. */
+function decodeUtf8(raw: string | Buffer, key: string): string {
+  if (typeof raw === "string") return raw;
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(raw);
+  } catch {
+    throw new CSignError(`${key} is not valid UTF-8`);
+  }
+}
+
 /** Throws a {@link CSignError} if the message breaks a rule of SPEC §2. */
 export function validateMessage(msg: SignedMessage): void {
   if (msg.version !== MESSAGE_VERSION) throw new CSignError(`Unsupported version "${msg.version}"`);
@@ -54,7 +78,11 @@ export function validateMessage(msg: SignedMessage): void {
     if (field.type === "u64" && !(Number.isSafeInteger(value) && (value as number) >= 0)) {
       throw new CSignError(`${key} must be a non-negative integer`);
     }
+    if (field.type !== "u64" && [value as string | string[]].flat().some((s) => FORBIDDEN_CHARACTER.test(s))) {
+      throw new CSignError(`${key} contains a forbidden character`);
+    }
   }
+  if (!isDomainForm(msg.domain)) throw new CSignError("domain is not a lower-case host with an optional port other than 443");
   const size = messageToScVal(msg, false).toXDR().length;
   if (size > MAX_MESSAGE_XDR_BYTES) throw new CSignError(`message exceeds ${MAX_MESSAGE_XDR_BYTES} bytes as XDR`);
 }
@@ -94,7 +122,7 @@ export function messageFromScVal(val: xdr.ScVal): SignedMessage {
     const kind = v.switch().name;
     if (field.type === "string") {
       if (kind !== "scvString") throw new CSignError(`${key} must be a String`);
-      out[field.prop] = v.str().toString();
+      out[field.prop] = decodeUtf8(v.str(), key);
     } else if (field.type === "u64") {
       if (kind !== "scvU64") throw new CSignError(`${key} must be a U64`);
       const n = BigInt(v.u64().toString());
@@ -104,7 +132,7 @@ export function messageFromScVal(val: xdr.ScVal): SignedMessage {
       if (kind !== "scvVec") throw new CSignError(`${key} must be a Vec<String>`);
       out[field.prop] = (v.vec() ?? []).map((item) => {
         if (item.switch().name !== "scvString") throw new CSignError(`${key} must be a Vec<String>`);
-        return item.str().toString();
+        return decodeUtf8(item.str(), key);
       });
     }
   }

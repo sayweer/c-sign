@@ -21,24 +21,6 @@ const vectors = buildVectors();
  * that starts passing fails the test, so the list only shrinks.
  */
 const KNOWN_GAPS: Record<string, string> = {
-  ...Object.fromEntries(
-    [
-      "statement_line_feed",
-      "statement_line_separator",
-      "statement_bidi_override",
-      "statement_zero_width_space",
-      "resource_tab",
-      "statement_invalid_utf8",
-      "domain_uppercase",
-      "domain_trailing_dot",
-      "domain_default_port",
-      "domain_with_scheme",
-      "domain_with_path",
-      "domain_with_userinfo",
-      "domain_u_label",
-    ].map((name) => [`messages.invalid/${name}`, "Characters and domain form"]),
-  ),
-  "structural/message_control_character": "Characters and domain form",
   "structural/issued_in_future": "Time",
   "structural/message_expired": "Time",
   "structural/message_not_yet_valid": "Time",
