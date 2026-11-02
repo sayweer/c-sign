@@ -21,6 +21,7 @@ const verify = (e: xdr.SorobanAuthorizationEntry | string, extra = {}) =>
   verifyMessage({
     signature: typeof e === "string" ? e : encodeEntry(e),
     rpcUrl,
+    allowHttp: true,
     networkPassphrase,
     domain: "demo.c-sign.dev",
     now,
@@ -111,9 +112,15 @@ describe("verifyMessage, offline rules", () => {
   it("reports RPC failure as inconclusive, never invalid", async () => {
     const r = await verify(entry());
     expect(r.status).toBe("inconclusive");
-    expect(stepStatus(r, "expiration")).toBe("error");
+    expect(stepStatus(r, "network")).toBe("error");
     expect(r.steps.map((s) => s.id)).toEqual([
-      "decode", "shape", "credentials", "rebuild", "message", "domain", "freshness", "expiration", "pin", "check_auth",
+      "decode", "shape", "credentials", "rebuild", "message", "domain", "freshness", "network", "expiration", "pin", "check_auth",
     ]);
+  });
+
+  it("refuses a plain http RPC without the opt-in, as inconclusive", async () => {
+    const r = await verify(entry(), { allowHttp: undefined });
+    expect(r.status).toBe("inconclusive");
+    expect(r.reason).toMatch(/allowHttp/);
   });
 });

@@ -21,8 +21,6 @@ const vectors = buildVectors();
  * that starts passing fails the test, so the list only shrinks.
  */
 const KNOWN_GAPS: Record<string, string> = {
-  "verification/rpc_other_network": "Network and RPC",
-  "verification/rpc_stale": "Network and RPC",
   "verification/valid_sign_in#nonce": "Nonce",
   "verification/sign_in_expiration_too_far#nonce": "Nonce",
   "verification/account_rejects#nonce": "Nonce",
@@ -106,6 +104,7 @@ describe("test vectors", () => {
       const r = await verifyMessage({
         signature: v.signature,
         rpcUrl: "http://127.0.0.1:1",
+        allowHttp: true,
         networkPassphrase: vectors.fixtures.network_passphrase,
         domain,
         now,

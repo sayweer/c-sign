@@ -19,6 +19,7 @@ const PENDING_STEPS = [
   "Message fields",
   "Domain is this site",
   "Nonce and issue time",
+  "RPC serves this network and is current",
   "Signature expiration",
   "Verifier runs the pinned Wasm",
   "Account's __check_auth (enforced simulation)",

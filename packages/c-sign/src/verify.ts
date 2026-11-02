@@ -8,7 +8,7 @@ export type VerifyStatus = "valid" | "invalid" | "inconclusive";
 export type StepStatus = "pass" | "fail" | "skip" | "error";
 
 export interface VerifyStep {
-  id: "decode" | "shape" | "credentials" | "rebuild" | "message" | "domain" | "freshness" | "expiration" | "pin" | "check_auth";
+  id: "decode" | "shape" | "credentials" | "rebuild" | "message" | "domain" | "freshness" | "network" | "expiration" | "pin" | "check_auth";
   label: string;
   status: StepStatus;
   detail: string;
@@ -18,6 +18,8 @@ export interface VerifyOptions {
   /** Base64 XDR `SorobanAuthorizationEntry`. */
   signature: string;
   rpcUrl: string;
+  /** Accept a plain `http` RPC URL, for local development. */
+  allowHttp?: boolean;
   networkPassphrase: string;
   /** Expected signer. If omitted, the account named in the entry is reported. */
   address?: string;
@@ -57,6 +59,7 @@ const LABELS: Record<VerifyStep["id"], string> = {
   message: "Message fields",
   domain: "Domain is this site",
   freshness: "Nonce and issue time",
+  network: "RPC serves this network and is current",
   expiration: "Signature expiration",
   pin: "Verifier runs the pinned Wasm",
   check_auth: "Account's __check_auth (enforced simulation)",
@@ -65,6 +68,9 @@ const LABELS: Record<VerifyStep["id"], string> = {
 const ORDER = Object.keys(LABELS) as VerifyStep["id"][];
 
 const MAX_CLOCK_SKEW_SECONDS = 60;
+
+// An RPC whose latest ledger is older than this may be stale or forked off (SPEC §6 step 6).
+const MAX_LEDGER_AGE_SECONDS = 30;
 
 // A sign-in entry should not stay usable for more than about a day (SPEC §6 step 2).
 const MAX_SIGN_IN_EXPIRATION_LEDGERS = 17280;
@@ -179,15 +185,26 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
     steps.push({ id: "freshness", label: LABELS.freshness, status: "skip", detail: "Not a sign-in: nonce and age not checked" });
   }
 
-  const server = new rpc.Server(opts.rpcUrl, { allowHttp: opts.rpcUrl.startsWith("http://") });
-
-  // 6. Expiration
+  // 6. The RPC: right network, current ledger
+  let server: rpc.Server;
   let latestLedger: number;
   try {
-    latestLedger = (await server.getLatestLedger()).sequence;
+    server = new rpc.Server(opts.rpcUrl, { allowHttp: opts.allowHttp });
+    const [network, latest] = await Promise.all([server.getNetwork(), server.getLatestLedger()]);
+    if (network.passphrase !== opts.networkPassphrase) {
+      return inconclusive("network", `RPC serves "${network.passphrase}", expected "${opts.networkPassphrase}"`, ctx);
+    }
+    const age = now - Number(latest.closeTime);
+    if (!(age <= MAX_LEDGER_AGE_SECONDS)) {
+      return inconclusive("network", `Latest ledger closed ${age}s ago, max ${MAX_LEDGER_AGE_SECONDS}s`, ctx);
+    }
+    latestLedger = latest.sequence;
   } catch (e) {
-    return inconclusive("expiration", `RPC unavailable: ${errorText(e)}`, ctx);
+    return inconclusive("network", `RPC unavailable: ${errorText(e)}`, ctx);
   }
+  pass("network", `Ledger ${latestLedger} on ${opts.networkPassphrase}`);
+
+  // 7. Expiration
   const expiration = creds.signatureExpirationLedger();
   if (expiration < latestLedger) {
     return fail("expiration", `Expired at ledger ${expiration} (now ${latestLedger})`, ctx);
@@ -197,7 +214,7 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
   }
   pass("expiration", `Valid until ledger ${expiration} (now ${latestLedger})`);
 
-  // 7. Pin the verifier instance
+  // 8. Pin the verifier instance
   const allowed = (opts.allowedWasmHashes ?? [REFERENCE_WASM_HASH]).map((h) => h.toLowerCase());
   if (opts.unsafeSkipPinning) {
     steps.push({ id: "pin", label: LABELS.pin, status: "skip", detail: "UNSAFE: pinning disabled" });
@@ -231,7 +248,7 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
     pass("pin", wasmHash);
   }
 
-  // 8. Enforced simulation; the account's __check_auth decides.
+  // 9. Enforced simulation; the account's __check_auth decides.
   const invoke = xdr.HostFunction.hostFunctionTypeInvokeContract(call);
   const source = new Account(Keypair.random().publicKey(), "0");
   const tx = new TransactionBuilder(source, { fee: "100", networkPassphrase: opts.networkPassphrase })
