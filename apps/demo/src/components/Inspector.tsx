@@ -23,6 +23,7 @@ const PENDING_STEPS = [
   "Signature expiration",
   "Verifier runs the pinned Wasm",
   "Account's __check_auth (enforced simulation)",
+  "Mark the nonce used",
 ];
 
 const VERDICT = {

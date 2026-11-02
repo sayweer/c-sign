@@ -94,9 +94,6 @@ The specification is the target. The library follows 0.0.2 except for the rows b
 
 | Area | Current behaviour | v0.0.2 rule |
 |---|---|---|
-| Sign-in checks | `domain` and the nonce check are optional, and a result without them can still be `valid` | Split the API so a sign-in requires both and an inspection call never reports a sign-in (§6 step 4, §6 after step 8) |
-| Time | Challenge age taken from `issued_at`, not from when the RP issued the nonce | Measured on the RP's clock (§6 step 4) |
-| Nonce | Checked before pinning and simulation, consumption left to the caller, no atomic consume; a throwing callback makes `verifyMessage` throw | Consume on `valid` only, atomically (§6 step 8) |
 | Wallet side | No validator for entries received from an application; the OpenZeppelin signing helper signs any entry | §5 items 3 and 5 |
 
 Interoperability: smart-account-kit 0.8.0 still signs the pre-0.8 digest, so passkey signatures through it do not verify for stellar-accounts 0.8.0 accounts until the kit is updated. The library signs both digests.

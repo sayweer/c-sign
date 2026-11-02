@@ -41,19 +41,22 @@ The fake verifier skips `require_auth` and still returns `AuthOk`; it shows that
 ## Verify a signature (TypeScript)
 
 ```ts
-import { verifyMessage, TESTNET } from "c-sign";
+import { verifySignIn, TESTNET } from "c-sign";
 
-const result = await verifyMessage({
+const result = await verifySignIn({
   signature,                       // base64 SorobanAuthorizationEntry from the wallet
   rpcUrl: TESTNET.rpcUrl,
   networkPassphrase: TESTNET.networkPassphrase,
   domain: "example.com",           // your own domain
-  freshness: { checkNonce: (nonce) => issuedByMe(nonce) },
+  nonces: {
+    issuedAt: (nonce) => myStore.issuedAt(nonce),   // when you issued it; undefined if unknown or used
+    consume: (nonce) => myStore.markUsedOnce(nonce), // atomic; called only on a valid result
+  },
 });
 // result.status: "valid" | "invalid" | "inconclusive", result.steps: every check with its outcome
 ```
 
-`verifyMessage` implements the checks of [SPEC §6](docs/SPEC.md#6-verification) in order and never throws: rule violations are `invalid`, RPC failures and archived entries are `inconclusive`. `buildMessageEntry` builds the entry a wallet signs; `signOzEntryWithEd25519` signs it for an OpenZeppelin account with Ed25519 signers; its required `scheme` argument is the account's digest format, `"preimage-v1"` for stellar-accounts 0.8.0 and later or `"legacy-concat"` for 0.7.x. Passkey signing uses [smart-account-kit](https://github.com/stellar/smart-account-kit)'s `signAuthEntry`.
+`verifySignIn` implements the checks of [SPEC §6](docs/SPEC.md#6-verification) in order and never throws: rule violations are `invalid`, RPC failures and archived entries are `inconclusive`. `verifyMessage` runs the same checks without the nonce, for auditors and services that are not logging anyone in; `domain: null` skips the domain check for inspection tools. Its result is not a sign-in. `buildMessageEntry` builds the entry a wallet signs; `signOzEntryWithEd25519` signs it for an OpenZeppelin account with Ed25519 signers; its required `scheme` argument is the account's digest format, `"preimage-v1"` for stellar-accounts 0.8.0 and later or `"legacy-concat"` for 0.7.x. Passkey signing uses [smart-account-kit](https://github.com/stellar/smart-account-kit)'s `signAuthEntry`.
 
 ## Evidence
 

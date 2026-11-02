@@ -8,13 +8,13 @@ export type VerifyStatus = "valid" | "invalid" | "inconclusive";
 export type StepStatus = "pass" | "fail" | "skip" | "error";
 
 export interface VerifyStep {
-  id: "decode" | "shape" | "credentials" | "rebuild" | "message" | "domain" | "freshness" | "network" | "expiration" | "pin" | "check_auth";
+  id: "decode" | "shape" | "credentials" | "rebuild" | "message" | "domain" | "freshness" | "network" | "expiration" | "pin" | "check_auth" | "consume";
   label: string;
   status: StepStatus;
   detail: string;
 }
 
-export interface VerifyOptions {
+interface CommonOptions {
   /** Base64 XDR `SorobanAuthorizationEntry`. */
   signature: string;
   rpcUrl: string;
@@ -23,21 +23,35 @@ export interface VerifyOptions {
   networkPassphrase: string;
   /** Expected signer. If omitted, the account named in the entry is reported. */
   address?: string;
-  /** The relying party's own domain. Omit only for inspection tools; a sign-in MUST set it. */
-  domain?: string;
   /** Accepted verifier Wasm hashes. Defaults to the reference hash. */
   allowedWasmHashes?: string[];
-  /** Freshness for sign-in: nonce ownership/unused check and maximum age of `issued_at`. */
-  freshness?: {
-    checkNonce: (nonce: string) => boolean | Promise<boolean>;
-    maxAgeSeconds?: number;
-  };
-  /** Allowed clock skew in seconds (default and maximum 60). Does not extend `maxAgeSeconds`. */
+  /** Allowed clock skew in seconds (default and maximum 60). Does not extend the challenge lifetime. */
   clockSkewSeconds?: number;
   /** Unix seconds; defaults to now. */
   now?: number;
+}
+
+export interface VerifyOptions extends CommonOptions {
+  /** A domain this verifier accepts for the statement, or `null` for an inspection tool that reports whatever was signed. */
+  domain: string | null;
   /** Experiments only: skips Wasm-hash pinning to show why it is required. */
   unsafeSkipPinning?: boolean;
+}
+
+/** The relying party's record of the nonces it issued. */
+export interface NonceStore {
+  /** When this RP issued `nonce` (Unix seconds, on its own clock), or `undefined` if it did not or the nonce is used. */
+  issuedAt(nonce: string): number | undefined | Promise<number | undefined>;
+  /** Atomically marks `nonce` used. Returns false if it already was. Called only on a `valid` result. */
+  consume(nonce: string): boolean | Promise<boolean>;
+}
+
+export interface VerifySignInOptions extends CommonOptions {
+  /** The relying party's own domain, from its configuration and not from the request. */
+  domain: string;
+  nonces: NonceStore;
+  /** Maximum age of the nonce in seconds (default 300). */
+  challengeLifetimeSeconds?: number;
 }
 
 export interface VerifyResult {
@@ -63,6 +77,7 @@ const LABELS: Record<VerifyStep["id"], string> = {
   expiration: "Signature expiration",
   pin: "Verifier runs the pinned Wasm",
   check_auth: "Account's __check_auth (enforced simulation)",
+  consume: "Mark the nonce used",
 };
 
 const ORDER = Object.keys(LABELS) as VerifyStep["id"][];
@@ -82,10 +97,25 @@ const MAX_ENTRY_BASE64_CHARS = Math.ceil(MAX_ENTRY_XDR_BYTES / 3) * 4;
 const pinnedInstances = new Map<string, string>();
 
 /**
- * Verifies a C-Sign signature (SPEC §6). Never throws: network failures and
- * archived entries are `inconclusive`, rule violations are `invalid`.
+ * Checks that the account's current rules authorize a signed message (SPEC §6
+ * steps 1 to 7). This is not a sign-in: it does not show when the message was
+ * signed or whether it was used before. Use {@link verifySignIn} to log someone in.
+ * Never throws: network failures and archived entries are `inconclusive`, rule
+ * violations are `invalid`.
  */
-export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> {
+export const verifyMessage = (opts: VerifyOptions): Promise<VerifyResult> => run(opts);
+
+/**
+ * The full relying-party check (SPEC §6): {@link verifyMessage} plus the nonce,
+ * which is consumed atomically on `valid` and left unused on any other result.
+ * Never throws; a failing {@link NonceStore} makes the result `inconclusive`.
+ */
+export const verifySignIn = (opts: VerifySignInOptions): Promise<VerifyResult> => run(opts, opts);
+
+async function run(
+  opts: CommonOptions & { domain: string | null; unsafeSkipPinning?: boolean },
+  signIn?: Pick<VerifySignInOptions, "nonces" | "challengeLifetimeSeconds">,
+): Promise<VerifyResult> {
   const steps: VerifyStep[] = [];
   const result = (status: VerifyStatus, reason: string, extra: Partial<VerifyResult> = {}): VerifyResult => {
     for (const id of ORDER) {
@@ -161,7 +191,7 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
   const ctx = { account, verifierId, message };
 
   // 5. Domain and time bounds
-  if (opts.domain === undefined) {
+  if (opts.domain === null) {
     steps.push({ id: "domain", label: LABELS.domain, status: "skip", detail: `Not checked (signed for ${message.domain})` });
   } else if (message.domain !== opts.domain) {
     return fail("domain", `Signed for ${message.domain}, this site is ${opts.domain}`, ctx);
@@ -176,10 +206,16 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
     return fail("freshness", "Message expiration_time has passed", ctx);
   }
   if (message.notBefore !== undefined && now + skew < message.notBefore) return fail("freshness", "Message is not valid yet (not_before)", ctx);
-  if (opts.freshness) {
-    const maxAge = opts.freshness.maxAgeSeconds ?? 300;
-    if (now - message.issuedAt > maxAge) return fail("freshness", `Issued ${now - message.issuedAt}s ago, max ${maxAge}s`, ctx);
-    if (!(await opts.freshness.checkNonce(message.nonce))) return fail("freshness", "Nonce was not issued here or was already used", ctx);
+  if (signIn) {
+    let issuedAt: number | undefined;
+    try {
+      issuedAt = await signIn.nonces.issuedAt(message.nonce);
+    } catch (e) {
+      return inconclusive("freshness", `Nonce store failed: ${errorText(e)}`, ctx);
+    }
+    if (issuedAt === undefined) return fail("freshness", "Nonce was not issued here or was already used", ctx);
+    const lifetime = signIn.challengeLifetimeSeconds ?? 300;
+    if (now - issuedAt > lifetime) return fail("freshness", `Nonce issued ${now - issuedAt}s ago, max ${lifetime}s`, ctx);
     pass("freshness", `Nonce ${message.nonce} accepted`);
   } else {
     steps.push({ id: "freshness", label: LABELS.freshness, status: "skip", detail: "Not a sign-in: nonce and age not checked" });
@@ -209,7 +245,7 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
   if (expiration < latestLedger) {
     return fail("expiration", `Expired at ledger ${expiration} (now ${latestLedger})`, ctx);
   }
-  if (opts.freshness && expiration - latestLedger > MAX_SIGN_IN_EXPIRATION_LEDGERS) {
+  if (signIn && expiration - latestLedger > MAX_SIGN_IN_EXPIRATION_LEDGERS) {
     return fail("expiration", `Sign-in entry expires ${expiration - latestLedger} ledgers from now, max ${MAX_SIGN_IN_EXPIRATION_LEDGERS}`, ctx);
   }
   pass("expiration", `Valid until ledger ${expiration} (now ${latestLedger})`);
@@ -268,7 +304,15 @@ export async function verifyMessage(opts: VerifyOptions): Promise<VerifyResult> 
   const withSim = { ...ctx, simulationError };
   if (simulationError.startsWith(`HostError: Error(Contract, #${AUTH_OK})`) && hasVerifierAuthOk(sim.events, verifierId)) {
     steps.push({ id: "check_auth", label: LABELS.check_auth, status: "pass", detail: `Error(Contract, #${AUTH_OK}) from the verifier: authorized` });
-    return result("valid", "The account authorized this message under its current rules", withSim);
+    if (!signIn) return result("valid", "The account authorized this message under its current rules", withSim);
+    // 10. Only now, and atomically: a result other than `valid` must leave the nonce unused.
+    try {
+      if (!(await signIn.nonces.consume(message.nonce))) return fail("consume", "Nonce was already used", withSim);
+    } catch (e) {
+      return inconclusive("consume", `Nonce store failed: ${errorText(e)}`, withSim);
+    }
+    pass("consume", `Nonce ${message.nonce} used`);
+    return result("valid", "The account authorized this sign-in under its current rules", withSim);
   }
   if (firstLine(simulationError).startsWith("HostError: Error(Auth,")) {
     return fail("check_auth", `Account rejected the signature: ${firstLine(simulationError)}`, withSim);

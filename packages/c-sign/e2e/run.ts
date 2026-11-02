@@ -17,6 +17,7 @@ import {
   randomEntryNonce,
   signOzEntryWithEd25519,
   verifyMessage,
+  verifySignIn,
   type OzDigestScheme,
   type OzEd25519Key,
   type SignedMessage,
@@ -315,7 +316,7 @@ async function main() {
   r = await verify(await sign(account.id, [k1], message("Expired"), { expirationLedger: latest - 1 }));
   record({ id: "N4", experiment: "Expired signature", expected: "invalid at expiration", observed: describe(r), pass: r.status === "invalid" });
 
-  r = await verify(s1, { freshness: { checkNonce: () => false } });
+  r = await verifySignIn({ signature: encodeEntry(s1), rpcUrl, networkPassphrase, domain: DOMAIN, nonces: { issuedAt: () => undefined, consume: () => true } });
   record({ id: "N5", experiment: "Reused sign-in nonce", expected: "invalid at freshness", observed: describe(r), pass: r.status === "invalid" });
 
   // ---- Key rotation: validity follows the account's current rules ------------

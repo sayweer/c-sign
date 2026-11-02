@@ -1,4 +1,4 @@
-import { REFERENCE_WASM_HASH, verifyMessage } from "c-sign";
+import { REFERENCE_WASM_HASH, verifyMessage, verifySignIn } from "c-sign";
 import { NETWORK_PASSPHRASE, RPC_URL } from "./_lib/config.js";
 import { isHttps, json, rateLimited, requestHost } from "./_lib/http.js";
 import { SESSION_COOKIE, SESSION_TTL_SECONDS, challengeNonce, consumeNonce, issueSession, nonceUsed } from "./_lib/tokens.js";
@@ -20,20 +20,21 @@ export async function POST(request: Request): Promise<Response> {
   const challenge = mode === "signin" ? challengeNonce(typeof body.token === "string" ? body.token : undefined) : null;
   if (mode === "signin" && !challenge) return json({ error: "Challenge expired or invalid. Request a new one." }, 400);
 
-  const result = await verifyMessage({
-    signature: body.signature,
-    rpcUrl: RPC_URL,
-    networkPassphrase: NETWORK_PASSPHRASE,
-    allowedWasmHashes: [REFERENCE_WASM_HASH],
-    domain: mode === "inspect" ? undefined : requestHost(request),
-    freshness:
-      mode === "signin"
-        ? { checkNonce: (nonce) => nonce === challenge!.nonce && !nonceUsed(nonce), maxAgeSeconds: 300 }
-        : undefined,
-  });
+  const common = { signature: body.signature, rpcUrl: RPC_URL, networkPassphrase: NETWORK_PASSPHRASE, allowedWasmHashes: [REFERENCE_WASM_HASH] };
+  const result =
+    mode === "signin"
+      ? await verifySignIn({
+          ...common,
+          domain: requestHost(request),
+          nonces: {
+            issuedAt: (nonce) => (nonce === challenge!.nonce && !nonceUsed(nonce) ? challenge!.issuedAt : undefined),
+            consume: consumeNonce,
+          },
+        })
+      : await verifyMessage({ ...common, domain: mode === "inspect" ? null : requestHost(request) });
 
   const headers: Record<string, string> = {};
-  if (mode === "signin" && result.status === "valid" && result.account && consumeNonce(challenge!.nonce)) {
+  if (mode === "signin" && result.status === "valid" && result.account) {
     const secure = isHttps(request) ? "; Secure" : "";
     headers["set-cookie"] = `${SESSION_COOKIE}=${issueSession(result.account)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}${secure}`;
   }

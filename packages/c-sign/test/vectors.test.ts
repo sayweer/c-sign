@@ -9,6 +9,7 @@ import {
   ozAuthDigest,
   ozAuthDigestPreimage,
   verifyMessage,
+  verifySignIn,
   type VerifyResult,
 } from "../src/index.js";
 import { VECTORS_PATH, buildVectors, serializeVectors } from "../scripts/vectors.js";
@@ -21,10 +22,6 @@ const vectors = buildVectors();
  * that starts passing fails the test, so the list only shrinks.
  */
 const KNOWN_GAPS: Record<string, string> = {
-  "verification/valid_sign_in#nonce": "Nonce",
-  "verification/sign_in_expiration_too_far#nonce": "Nonce",
-  "verification/account_rejects#nonce": "Nonce",
-  "verification/other_host_error#nonce": "Nonce",
   ...Object.fromEntries(vectors.wallet_domain.cases.map((c) => [`wallet_domain/${c.name}`, "Wallet side"])),
 };
 
@@ -83,16 +80,7 @@ describe("test vectors", () => {
 
   it("structural cases, offline", async () => {
     for (const v of vectors.structural.cases) {
-      const { domain, now, address, issued_nonces } = v.context;
-      const r = await verifyMessage({
-        signature: v.signature,
-        rpcUrl: "http://127.0.0.1:1", // unreachable on purpose
-        networkPassphrase: vectors.fixtures.network_passphrase,
-        domain,
-        now,
-        address,
-        freshness: issued_nonces && { checkNonce: (n) => issued_nonces.some((i) => i.nonce === n) },
-      });
+      const r = await runCase(v, "http://127.0.0.1:1"); // unreachable on purpose
       record(`structural/${v.name}`, r.status === v.expected.status && stepOf(r) === v.expected.step);
     }
   });
@@ -100,21 +88,13 @@ describe("test vectors", () => {
   it("verification cases, against a stubbed RPC", async () => {
     for (const v of vectors.verification.cases) {
       stubRpc(v.rpc, v.verifier);
-      const { domain, now, address, issued_nonces } = v.context;
-      const r = await verifyMessage({
-        signature: v.signature,
-        rpcUrl: "http://127.0.0.1:1",
-        allowHttp: true,
-        networkPassphrase: vectors.fixtures.network_passphrase,
-        domain,
-        now,
-        address,
-        freshness: issued_nonces && { checkNonce: (n) => issued_nonces.some((i) => i.nonce === n) },
-      });
+      const consumed: string[] = [];
+      const r = await runCase(v, "http://127.0.0.1:1", consumed);
       const expected: { status: string; step?: string; nonce_consumed?: boolean } = v.expected;
       record(`verification/${v.name}`, r.status === expected.status && (expected.step === undefined || stepOf(r) === expected.step));
-      // The library has no nonce-consumption hook yet, so these cannot pass.
-      if (expected.nonce_consumed !== undefined) record(`verification/${v.name}#nonce`, false);
+      if (expected.nonce_consumed !== undefined) {
+        record(`verification/${v.name}#nonce`, consumed.includes(vectors.messages.valid[0].fields.nonce as string) === expected.nonce_consumed);
+      }
     }
     vi.restoreAllMocks();
   });
@@ -138,6 +118,22 @@ describe("test vectors", () => {
     expect({ failing, closed, stale }).toEqual({ failing: [], closed: [], stale: [] });
   });
 });
+
+type VectorContext = { domain: string; now: number; address?: string; issued_nonces?: { nonce: string; issued_at: number }[] };
+
+/** A context with `issued_nonces` is a sign-in; any other is a plain verification. */
+function runCase(v: { signature: string; context: VectorContext }, rpcUrl: string, consumed: string[] = []) {
+  const { issued_nonces, ...context } = v.context;
+  const common = { ...context, signature: v.signature, rpcUrl, allowHttp: true, networkPassphrase: vectors.fixtures.network_passphrase };
+  if (!issued_nonces) return verifyMessage(common);
+  return verifySignIn({
+    ...common,
+    nonces: {
+      issuedAt: (nonce) => issued_nonces.find((i) => i.nonce === nonce)?.issued_at,
+      consume: (nonce) => consumed.push(nonce) > 0,
+    },
+  });
+}
 
 /** Answers the library's RPC calls from a vector's `rpc` state. */
 function stubRpc(state: (typeof vectors.verification.cases)[number]["rpc"], verifier: string) {
