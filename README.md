@@ -56,7 +56,7 @@ const result = await verifySignIn({
 // result.status: "valid" | "invalid" | "inconclusive", result.steps: every check with its outcome
 ```
 
-`verifySignIn` implements the checks of [SPEC §6](docs/SPEC.md#6-verification) in order and never throws: rule violations are `invalid`, RPC failures and archived entries are `inconclusive`. `verifyMessage` runs the same checks without the nonce, for auditors and services that are not logging anyone in; `domain: null` skips the domain check for inspection tools. Its result is not a sign-in. `buildMessageEntry` builds the entry a wallet signs; `checkMessageRequest` is what a wallet runs before signing one (origin, entry shape, verifier pin); `signOzMessageWithEd25519` signs it for an OpenZeppelin account with Ed25519 signers; its required `scheme` argument is the account's digest format, `"preimage-v1"` for stellar-accounts 0.8.0 and later or `"legacy-concat"` for 0.7.x. Passkey signing uses [smart-account-kit](https://github.com/stellar/smart-account-kit)'s `signAuthEntry`.
+`verifySignIn` implements the checks of [SPEC §6](docs/SPEC.md#6-verification) in order and never throws: rule violations are `invalid`, RPC failures and archived entries are `inconclusive`. `verifyMessage` runs the same checks without the nonce, for auditors and services that are not logging anyone in; `domain: null` skips the domain check for inspection tools. Its result is not a sign-in. `buildMessageEntry` builds the entry a wallet signs; `checkMessageRequest` is what a wallet runs before signing one (origin, entry shape, verifier pin); `signOzMessageWithEd25519` signs it for an OpenZeppelin account with Ed25519 signers; its required `scheme` argument is the account's digest format, `"preimage-v1"` for stellar-accounts 0.8.0 and later or `"legacy-concat"` for 0.7.x. For [passkey-kit](https://github.com/stellar/passkey-kit) wallets, `signMessageWithPasskeyKit` signs through a kit instance and `signPasskeyKitMessageWithEd25519` signs with Ed25519 keys and no kit. Passkey signing on OpenZeppelin accounts uses [smart-account-kit](https://github.com/stellar/smart-account-kit)'s `signAuthEntry`.
 
 ## Evidence
 
@@ -69,6 +69,7 @@ const result = await verifySignIn({
 - A 2-of-3 threshold policy decides as well: after the threshold is raised to three, the same two-key signature stops verifying.
 - A minimal non-OpenZeppelin account, which signs the raw payload, verifies through the same path.
 - An OpenZeppelin stellar-accounts 0.8.0 account verifies with its new auth digest, rejects the old one, and computes the same digest on-chain as the library.
+- passkey-kit 0.14 and 0.20 wallets verify through the same path, with a software P-256 authenticator, and a recovery key limited to the wallet contract is `invalid` ([docs/EXPERIMENTS-PASSKEY-KIT.md](docs/EXPERIMENTS-PASSKEY-KIT.md), `pnpm e2e:passkey-kit`).
 - The host accepts statements of about 190 KB, with or without a policy; only the RPC's request-size cap stops verification.
 - Median verification time against a public testnet RPC is under one second.
 
@@ -82,7 +83,7 @@ const result = await verifySignIn({
 
 ```
 contracts/verifier/                   reference verifier (Rust, soroban-sdk 28) and its pinned Wasm hash
-packages/c-sign/                      TypeScript library: message, entry, verifyMessage, OpenZeppelin signing
+packages/c-sign/                      TypeScript library: message, entry, verifyMessage, OpenZeppelin and passkey-kit signing
 packages/c-sign/e2e/                  testnet experiments (pnpm e2e) and demo backend smoke test
 packages/c-sign/scripts/vectors.ts    test-vector generator (pnpm vectors)
 vectors/c-sign-v1.json                test vectors for other implementations

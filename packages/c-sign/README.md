@@ -59,6 +59,8 @@ const { account, verifierId, message, expirationLedger } = await checkMessageReq
 
 It throws a `CSignError` when the wallet must refuse, including when it cannot confirm the verifier. `signOzMessageWithEd25519` signs for an OpenZeppelin account with Ed25519 signers; its `scheme` argument is the account's digest format, `"preimage-v1"` for stellar-accounts 0.8.0 and later or `"legacy-concat"` for 0.7.x. `signOzEntryWithEd25519` signs other authorization entries and refuses message entries.
 
+For a passkey-kit wallet (tested with 0.14.0 and 0.20.0), `signMessageWithPasskeyKit(kit, entry, signer?)` signs through a connected kit instance, and `signPasskeyKitMessageWithEd25519(entry, keys, networkPassphrase)` signs without one. Both refuse anything but a message entry. A key whose limits exclude the verifier gets `invalid`; leave recovery keys that way, because adding the verifier to a key's limits makes it valid for every domain.
+
 ## More
 
 - [Specification](https://github.com/sayweer/c-sign/blob/main/docs/SPEC.md) and [threat model](https://github.com/sayweer/c-sign/blob/main/docs/THREAT-MODEL.md)
