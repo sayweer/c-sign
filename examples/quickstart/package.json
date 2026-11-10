@@ -1,0 +1,19 @@
+{
+  "name": "c-sign-example-quickstart",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "server": "tsx server.ts",
+    "client": "tsx client.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "16.4.1",
+    "c-sign": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
