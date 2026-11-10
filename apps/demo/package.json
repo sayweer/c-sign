@@ -21,7 +21,7 @@
     "vite": "^8.3.1"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "16.3.0",
+    "@stellar/stellar-sdk": "16.4.1",
     "buffer": "^6.0.3",
     "c-sign": "workspace:*",
     "gsap": "^3.15.0",
