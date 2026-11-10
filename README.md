@@ -38,23 +38,32 @@ Two independent instances of the same Wasm, to show that none is canonical. Both
 
 The fake verifier skips `require_auth` and still returns `AuthOk`; it shows that a relying party that does not pin the Wasm hash can be fooled. The non-reverting verifier succeeds after `require_auth`; it shows the nonce burn that the reference design avoids.
 
-## Verify a signature (TypeScript)
+## Quickstart
+
+```sh
+npm install c-sign
+```
 
 ```ts
-import { verifySignIn, TESTNET } from "c-sign";
+import { MemoryNonceStore, createSignInMessage, verifySignIn, TESTNET } from "c-sign";
 
+const nonces = new MemoryNonceStore();
+
+// GET /challenge: the message the wallet signs
+const message = createSignInMessage({ domain: "example.com", statement: "Sign in to Example", ...nonces.issue() });
+
+// POST /verify: the base64 entry the wallet returns
 const result = await verifySignIn({
-  signature,                       // base64 SorobanAuthorizationEntry from the wallet
+  signature,
   rpcUrl: TESTNET.rpcUrl,
   networkPassphrase: TESTNET.networkPassphrase,
-  domain: "example.com",           // your own domain
-  nonces: {
-    issuedAt: (nonce) => myStore.issuedAt(nonce),   // when you issued it; undefined if unknown or used
-    consume: (nonce) => myStore.markUsedOnce(nonce), // atomic; called only on a valid result
-  },
+  domain: "example.com",           // your own domain, from configuration
+  nonces,
 });
 // result.status: "valid" | "invalid" | "inconclusive", result.steps: every check with its outcome
 ```
+
+[examples/quickstart](examples/quickstart) runs the whole flow on testnet in two terminals: a relying party in two framework-independent handlers and a wallet that creates a smart account and signs in. The library works in Node.js, browsers and edge runtimes, and next to stellar-sdk 16 or 17; see the [library README](packages/c-sign/README.md).
 
 `verifySignIn` implements the checks of [SPEC §6](docs/SPEC.md#6-verification) in order and never throws: rule violations are `invalid`, RPC failures and archived entries are `inconclusive`. `verifyMessage` runs the same checks without the nonce, for auditors and services that are not logging anyone in; `domain: null` skips the domain check for inspection tools. Its result is not a sign-in. `buildMessageEntry` builds the entry a wallet signs; `checkMessageRequest` is what a wallet runs before signing one (origin, entry shape, verifier pin); `signOzMessageWithEd25519` signs it for an OpenZeppelin account with Ed25519 signers; its required `scheme` argument is the account's digest format, `"preimage-v1"` for stellar-accounts 0.8.0 and later or `"legacy-concat"` for 0.7.x. For [passkey-kit](https://github.com/stellar/passkey-kit) wallets, `signMessageWithPasskeyKit` signs through a kit instance and `signPasskeyKitMessageWithEd25519` signs with Ed25519 keys and no kit. Passkey signing on OpenZeppelin accounts uses [smart-account-kit](https://github.com/stellar/smart-account-kit)'s `signAuthEntry`.
 
@@ -85,6 +94,8 @@ const result = await verifySignIn({
 contracts/verifier/                   reference verifier (Rust, soroban-sdk 28) and its pinned Wasm hash
 packages/c-sign/                      TypeScript library: message, entry, verifyMessage, OpenZeppelin and passkey-kit signing
 packages/c-sign/e2e/                  testnet experiments (pnpm e2e) and demo backend smoke test
+packages/kit-compat/                  c-sign in an application on stellar-sdk 16 with passkey-kit 0.14 and 0.20: tests and experiments
+examples/quickstart/                  sign-in on testnet end to end: relying party and terminal wallet
 packages/c-sign/scripts/vectors.ts    test-vector generator (pnpm vectors)
 vectors/c-sign-v1.json                test vectors for other implementations
 apps/demo/                            passkey sign-in demo (Vite, React, Vercel functions)
@@ -107,13 +118,14 @@ stellar contract build --locked   # wasm: target/wasm32v1-none/release/sep53c_ve
 stellar contract info hash --wasm target/wasm32v1-none/release/sep53c_verifier.wasm   # must equal contracts/verifier/WASM_HASH
 
 pnpm install
-pnpm test                         # library unit tests, offline
+pnpm test                         # library and kit-compat unit tests, offline
+pnpm --filter c-sign test:browser # library bundled for the browser, in headless Chrome
 pnpm e2e                          # testnet experiments, rewrites docs/EXPERIMENTS.md
                                   # optional: RPC_URL (another provider), FUNDER_SECRET (if Friendbot is down)
 pnpm vectors                      # regenerates vectors/c-sign-v1.json
 ```
 
-The build is reproducible. Pinned inputs: rustc 1.96.1 (`rust-toolchain.toml`), soroban-sdk 28.0.0 (`Cargo.lock`) and stellar-cli 27.0.0, whose version is embedded in the Wasm metadata. CI checks the hash on every push. Enforcing simulation needs stellar-rpc 23 or newer and the `authMode` argument of `simulateTransaction` (js-stellar-sdk 14 or newer). The library and demo use js-stellar-sdk 16.3.0, the version smart-account-kit 0.8.0 expects.
+The build is reproducible. Pinned inputs: rustc 1.96.1 (`rust-toolchain.toml`), soroban-sdk 28.0.0 (`Cargo.lock`) and stellar-cli 27.0.0, whose version is embedded in the Wasm metadata. CI checks the hash on every push. Enforcing simulation needs stellar-rpc 23 or newer and the `authMode` argument of `simulateTransaction` (js-stellar-sdk 14 or newer). The library uses js-stellar-sdk 17 and accepts entries and keys from 16 or 17; the demo uses 16.4, the version smart-account-kit expects.
 
 ## Known limitations
 

@@ -1,6 +1,6 @@
 {
   "name": "c-sign",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Sign and verify messages with Stellar contract accounts (C-Sign)",
   "keywords": [
     "stellar",
@@ -29,7 +29,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
