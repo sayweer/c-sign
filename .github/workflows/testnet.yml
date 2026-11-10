@@ -1,0 +1,45 @@
+name: Testnet conformance
+
+# The experiments of docs/EXPERIMENTS.md and docs/EXPERIMENTS-PASSKEY-KIT.md against the
+# live testnet: protocol upgrades, RPC changes and testnet resets show up here first.
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: testnet
+  cancel-in-progress: false
+
+jobs:
+  experiments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter c-sign build
+
+      # Friendbot funds the fresh sponsors; FUNDER_SECRET (optional) is the fallback when it is down.
+      - name: Library experiments (verifier, OpenZeppelin, minimal account, latency)
+        env:
+          FUNDER_SECRET: ${{ secrets.TESTNET_FUNDER_SECRET }}
+        run: pnpm --filter c-sign e2e
+
+      - name: passkey-kit experiments (application on stellar-sdk 16)
+        env:
+          FUNDER_SECRET: ${{ secrets.TESTNET_FUNDER_SECRET }}
+        run: pnpm --filter c-sign-kit-compat e2e
+
+      - name: Reports
+        if: always()
+        run: cat docs/EXPERIMENTS.md docs/EXPERIMENTS-PASSKEY-KIT.md >> "$GITHUB_STEP_SUMMARY"
