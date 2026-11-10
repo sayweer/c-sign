@@ -6,6 +6,7 @@ First release on npm. Follows [SPEC v0.0.2](https://github.com/sayweer/c-sign/bl
 
 ### Added
 
+- `G…` accounts in `verifySignIn` and `verifyMessage`: a SEP-53 signature over `signInText`, a CAIP-122 text bound to the network's chain id, checked with the same message rules and no RPC call. `signSignInWithKeypair` and `chainId` helpers.
 - `MemoryNonceStore`, `createSignInMessage` and `createNonce`: a relying party's challenge and nonce store in a few lines.
 - `createMessageEntry`: the unsigned entry with its expiration set from the RPC's latest ledger (720 ledgers by default).
 - Entries are accepted as base64 XDR or as objects from any stellar-sdk version (`EntryInput`, `toEntry`), and signers take a `Keypair` from any version (`Ed25519Keypair`).

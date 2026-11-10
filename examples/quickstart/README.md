@@ -9,12 +9,15 @@ pnpm server          # terminal 1: http://localhost:8787
 pnpm client          # terminal 2
 ```
 
-The client creates a smart account with one Ed25519 signer (funded by friendbot), asks the server for a challenge, signs it and signs in. Then it sends the same signature again:
+The client creates a smart account with one Ed25519 signer (funded by friendbot), asks the server for a challenge, signs it and signs in. Then it sends the same signature again, and finally signs in with a `G…` key:
 
 ```
 Sign in:      { status: 'valid', reason: 'The account authorized this sign-in under its current rules', account: 'C...' }
 Replay it:    { status: 'invalid', reason: 'Nonce was not issued here or was already used', account: 'C...' }
+G sign in:    { status: 'valid', reason: "The account's key signed this sign-in", account: 'G...' }
 ```
+
+The last line is a `G…` account signing the same kind of challenge with SEP-53: one `/verify` endpoint serves both.
 
 ## Using it in your app
 

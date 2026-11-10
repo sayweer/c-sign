@@ -60,6 +60,23 @@ const nonces = {
 };
 ```
 
+## G accounts
+
+A `G…` account signs in with [SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md) through the same `verifySignIn`, so one endpoint serves both kinds of address. The wallet signs `signInText(message, address, networkPassphrase)`, a CAIP-122 text with the network's chain id (Freighter: `signMessage`), and the application posts the signature, the address and the message:
+
+```ts
+import { signInText, verifySignIn } from "c-sign";
+
+// In the browser
+const text = signInText(message, address, TESTNET.networkPassphrase);
+const { signedMessage } = await freighter.signMessage(text, { address });
+
+// On the server: the same call as for a C... account, with address and message
+const result = await verifySignIn({ signature: signedMessage, address, message, rpcUrl, networkPassphrase, domain: DOMAIN, nonces });
+```
+
+The server checks the message fields with the same rules as for a contract account, rebuilds the text from them (it never parses text) and checks the signature against the account's key, with no RPC call. SEP-53 checks one key: it does not see signer weights, thresholds or a removed master key. `signSignInWithKeypair` signs with a `Keypair`, for tests and scripts.
+
 ## Check a message without signing anyone in
 
 ```ts

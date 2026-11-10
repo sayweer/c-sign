@@ -1,29 +1,48 @@
-import { Account, Address, Keypair, Operation, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
+import { Account, Address, Keypair, Operation, StrKey, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
 import { bytesEqual, fromBase64, toHex } from "./bytes.js";
 import { AUTH_OK, REFERENCE_WASM_HASH, VERIFY_FUNCTION } from "./constants.js";
 import { CSignError } from "./errors.js";
 import { buildVerifyInvocation } from "./entry.js";
-import { MAX_ENTRY_XDR_BYTES, messageFromScVal, type SignedMessage } from "./message.js";
+import { MAX_ENTRY_XDR_BYTES, messageFromScVal, messageToScVal, type SignedMessage } from "./message.js";
+import { signInText } from "./sep53.js";
 
 export type VerifyStatus = "valid" | "invalid" | "inconclusive";
 export type StepStatus = "pass" | "fail" | "skip" | "error";
 
 export interface VerifyStep {
-  id: "decode" | "shape" | "credentials" | "rebuild" | "message" | "domain" | "freshness" | "network" | "expiration" | "pin" | "check_auth" | "consume";
+  id:
+    | "decode"
+    | "shape"
+    | "credentials"
+    | "rebuild"
+    | "message"
+    | "domain"
+    | "freshness"
+    | "network"
+    | "expiration"
+    | "pin"
+    | "check_auth"
+    | "sep53"
+    | "consume";
   label: string;
   status: StepStatus;
   detail: string;
 }
 
 interface CommonOptions {
-  /** Base64 XDR `SorobanAuthorizationEntry`. */
+  /**
+   * For a `C…` account, the base64 XDR `SorobanAuthorizationEntry` the wallet returned.
+   * For a `G…` account, the base64 SEP-53 signature of {@link signInText}; pass `address` and `message` too.
+   */
   signature: string;
   rpcUrl: string;
   /** Accept a plain `http` RPC URL, for local development. */
   allowHttp?: boolean;
   networkPassphrase: string;
-  /** Expected signer. If omitted, the account named in the entry is reported. */
+  /** Expected signer. Required for a `G…` account; for a `C…` account, if omitted, the account named in the entry is reported. */
   address?: string;
+  /** For a `G…` account only: the message the wallet signed, as the application sent it. A `C…` entry carries its own. */
+  message?: SignedMessage;
   /** Accepted verifier Wasm hashes. Defaults to the reference hash. */
   allowedWasmHashes?: string[];
   /** Allowed clock skew in seconds (default and maximum 60). Does not extend the challenge lifetime. */
@@ -78,10 +97,14 @@ const LABELS: Record<VerifyStep["id"], string> = {
   expiration: "Signature expiration",
   pin: "Verifier runs the pinned Wasm",
   check_auth: "Account's __check_auth (enforced simulation)",
+  sep53: "SEP-53 signature by the account's key",
   consume: "Mark the nonce used",
 };
 
-const ORDER = Object.keys(LABELS) as VerifyStep["id"][];
+const C_ORDER: VerifyStep["id"][] = [
+  "decode", "shape", "credentials", "rebuild", "message", "domain", "freshness", "network", "expiration", "pin", "check_auth", "consume",
+];
+const G_ORDER: VerifyStep["id"][] = ["decode", "message", "domain", "freshness", "sep53", "consume"];
 
 const MAX_CLOCK_SKEW_SECONDS = 60;
 
@@ -113,19 +136,19 @@ export const verifyMessage = (opts: VerifyOptions): Promise<VerifyResult> => run
  */
 export const verifySignIn = (opts: VerifySignInOptions): Promise<VerifyResult> => run(opts, opts);
 
-async function run(
-  opts: CommonOptions & { domain: string | null; unsafeSkipPinning?: boolean },
-  signIn?: Pick<VerifySignInOptions, "nonces" | "challengeLifetimeSeconds">,
-): Promise<VerifyResult> {
+type Tracker = ReturnType<typeof tracker>;
+
+function tracker(order: VerifyStep["id"][]) {
   const steps: VerifyStep[] = [];
   const result = (status: VerifyStatus, reason: string, extra: Partial<VerifyResult> = {}): VerifyResult => {
-    for (const id of ORDER) {
+    for (const id of order) {
       if (!steps.some((s) => s.id === id)) steps.push({ id, label: LABELS[id], status: "skip", detail: "Not reached" });
     }
-    steps.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
+    steps.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
     return { status, reason, steps, ...extra };
   };
   const pass = (id: VerifyStep["id"], detail: string) => steps.push({ id, label: LABELS[id], status: "pass", detail });
+  const skip = (id: VerifyStep["id"], detail: string) => steps.push({ id, label: LABELS[id], status: "skip", detail });
   const fail = (id: VerifyStep["id"], detail: string, extra: Partial<VerifyResult> = {}) => {
     steps.push({ id, label: LABELS[id], status: "fail", detail });
     return result("invalid", detail, extra);
@@ -134,6 +157,16 @@ async function run(
     steps.push({ id, label: LABELS[id], status: "error", detail });
     return result("inconclusive", detail, extra);
   };
+  return { steps, result, pass, skip, fail, inconclusive };
+}
+
+type RunOptions = CommonOptions & { domain: string | null; unsafeSkipPinning?: boolean };
+type SignInPart = Pick<VerifySignInOptions, "nonces" | "challengeLifetimeSeconds">;
+
+async function run(opts: RunOptions, signIn?: SignInPart): Promise<VerifyResult> {
+  if (opts.address?.startsWith("G")) return runG(opts, signIn);
+  const t = tracker(C_ORDER);
+  const { steps, result, pass, fail, inconclusive } = t;
 
   // 1. Decode
   const encoded = opts.signature.trim();
@@ -193,36 +226,10 @@ async function run(
   pass("message", `version ${message.version}, ${Object.keys(message).length} fields`);
   const ctx = { account, verifierId, message };
 
-  // 5. Domain and time bounds
-  if (opts.domain === null) {
-    steps.push({ id: "domain", label: LABELS.domain, status: "skip", detail: `Not checked (signed for ${message.domain})` });
-  } else if (message.domain !== opts.domain) {
-    return fail("domain", `Signed for ${message.domain}, this site is ${opts.domain}`, ctx);
-  } else {
-    pass("domain", message.domain);
-  }
-
+  // 5. Domain, time bounds and nonce
   const now = opts.now ?? Math.floor(Date.now() / 1000);
-  const skew = Math.min(opts.clockSkewSeconds ?? MAX_CLOCK_SKEW_SECONDS, MAX_CLOCK_SKEW_SECONDS);
-  if (message.issuedAt > now + skew) return fail("freshness", "issued_at is in the future", ctx);
-  if (message.expirationTime !== undefined && now > message.expirationTime + skew) {
-    return fail("freshness", "Message expiration_time has passed", ctx);
-  }
-  if (message.notBefore !== undefined && now + skew < message.notBefore) return fail("freshness", "Message is not valid yet (not_before)", ctx);
-  if (signIn) {
-    let issuedAt: number | undefined;
-    try {
-      issuedAt = await signIn.nonces.issuedAt(message.nonce);
-    } catch (e) {
-      return inconclusive("freshness", `Nonce store failed: ${errorText(e)}`, ctx);
-    }
-    if (issuedAt === undefined) return fail("freshness", "Nonce was not issued here or was already used", ctx);
-    const lifetime = signIn.challengeLifetimeSeconds ?? 300;
-    if (now - issuedAt > lifetime) return fail("freshness", `Nonce issued ${now - issuedAt}s ago, max ${lifetime}s`, ctx);
-    pass("freshness", `Nonce ${message.nonce} accepted`);
-  } else {
-    steps.push({ id: "freshness", label: LABELS.freshness, status: "skip", detail: "Not a sign-in: nonce and age not checked" });
-  }
+  const ruled = await checkMessageRules(t, message, opts, signIn, ctx, now);
+  if (ruled) return ruled;
 
   // 6. The RPC: right network, current ledger
   let server: rpc.Server;
@@ -300,18 +307,103 @@ async function run(
     steps.push({ id: "check_auth", label: LABELS.check_auth, status: "pass", detail: `Error(Contract, #${AUTH_OK}) from the verifier: authorized` });
     if (!signIn) return result("valid", "The account authorized this message under its current rules", withSim);
     // 10. Only now, and atomically: a result other than `valid` must leave the nonce unused.
-    try {
-      if (!(await signIn.nonces.consume(message.nonce))) return fail("consume", "Nonce was already used", withSim);
-    } catch (e) {
-      return inconclusive("consume", `Nonce store failed: ${errorText(e)}`, withSim);
-    }
-    pass("consume", `Nonce ${message.nonce} used`);
-    return result("valid", "The account authorized this sign-in under its current rules", withSim);
+    return (
+      (await consumeNonce(t, signIn, message.nonce, withSim)) ??
+      result("valid", "The account authorized this sign-in under its current rules", withSim)
+    );
   }
   if (firstLine(simulationError).startsWith("HostError: Error(Auth,")) {
     return fail("check_auth", `Account rejected the signature: ${firstLine(simulationError)}`, withSim);
   }
   return inconclusive("check_auth", `Unexpected simulation result: ${firstLine(simulationError)}`, withSim);
+}
+
+/** SPEC §6 step 4 on the message: domain, time bounds and, for a sign-in, the nonce. Returns a result only on failure. */
+async function checkMessageRules(
+  t: Tracker,
+  message: SignedMessage,
+  opts: RunOptions,
+  signIn: SignInPart | undefined,
+  ctx: Partial<VerifyResult>,
+  now: number,
+): Promise<VerifyResult | undefined> {
+  const { pass, skip, fail, inconclusive } = t;
+  if (opts.domain === null) {
+    skip("domain", `Not checked (signed for ${message.domain})`);
+  } else if (message.domain !== opts.domain) {
+    return fail("domain", `Signed for ${message.domain}, this site is ${opts.domain}`, ctx);
+  } else {
+    pass("domain", message.domain);
+  }
+
+  const skew = Math.min(opts.clockSkewSeconds ?? MAX_CLOCK_SKEW_SECONDS, MAX_CLOCK_SKEW_SECONDS);
+  if (message.issuedAt > now + skew) return fail("freshness", "issued_at is in the future", ctx);
+  if (message.expirationTime !== undefined && now > message.expirationTime + skew) {
+    return fail("freshness", "Message expiration_time has passed", ctx);
+  }
+  if (message.notBefore !== undefined && now + skew < message.notBefore) return fail("freshness", "Message is not valid yet (not_before)", ctx);
+  if (signIn) {
+    let issuedAt: number | undefined;
+    try {
+      issuedAt = await signIn.nonces.issuedAt(message.nonce);
+    } catch (e) {
+      return inconclusive("freshness", `Nonce store failed: ${errorText(e)}`, ctx);
+    }
+    if (issuedAt === undefined) return fail("freshness", "Nonce was not issued here or was already used", ctx);
+    const lifetime = signIn.challengeLifetimeSeconds ?? 300;
+    if (now - issuedAt > lifetime) return fail("freshness", `Nonce issued ${now - issuedAt}s ago, max ${lifetime}s`, ctx);
+    pass("freshness", `Nonce ${message.nonce} accepted`);
+  } else {
+    skip("freshness", "Not a sign-in: nonce and age not checked");
+  }
+  return undefined;
+}
+
+/** Marks the nonce used, atomically. Returns a result only if that fails. */
+async function consumeNonce(t: Tracker, signIn: SignInPart, nonce: string, ctx: Partial<VerifyResult>): Promise<VerifyResult | undefined> {
+  try {
+    if (!(await signIn.nonces.consume(nonce))) return t.fail("consume", "Nonce was already used", ctx);
+  } catch (e) {
+    return t.inconclusive("consume", `Nonce store failed: ${errorText(e)}`, ctx);
+  }
+  t.pass("consume", `Nonce ${nonce} used`);
+  return undefined;
+}
+
+/** A `G…` account: a SEP-53 signature by its key over {@link signInText}, with the same message rules. No RPC call. */
+async function runG(opts: RunOptions, signIn?: SignInPart): Promise<VerifyResult> {
+  const t = tracker(G_ORDER);
+  const account = opts.address!;
+  if (!StrKey.isValidEd25519PublicKey(account)) return t.fail("decode", "address is not a valid G… account");
+  const signature = fromBase64(opts.signature.trim());
+  if (!signature || signature.length !== 64) return t.fail("decode", "Signature is not a base64 64-byte Ed25519 signature", { account });
+  t.pass("decode", "64-byte Ed25519 signature");
+
+  if (!opts.message) return t.fail("message", "A G… account needs the signed message", { account });
+  let message: SignedMessage;
+  try {
+    // Round trip through the encoding: validates every rule of SPEC §2 and drops properties that are not message fields.
+    message = messageFromScVal(messageToScVal(opts.message));
+  } catch (e) {
+    return t.fail("message", e instanceof CSignError ? e.message : "Message is not valid", { account });
+  }
+  t.pass("message", `version ${message.version}, ${Object.keys(message).length} fields`);
+  const ctx = { account, message };
+
+  const now = opts.now ?? Math.floor(Date.now() / 1000);
+  const ruled = await checkMessageRules(t, message, opts, signIn, ctx, now);
+  if (ruled) return ruled;
+
+  let text: string;
+  try {
+    text = signInText(message, account, opts.networkPassphrase);
+  } catch (e) {
+    return t.inconclusive("sep53", errorText(e), ctx);
+  }
+  if (!Keypair.fromPublicKey(account).verifyMessage(text, signature)) return t.fail("sep53", "Not signed by this account's key", ctx);
+  t.pass("sep53", "Signed by the account's key; SEP-53 does not check signer weights or thresholds");
+  if (!signIn) return t.result("valid", "The account's key signed this message", ctx);
+  return (await consumeNonce(t, signIn, message.nonce, ctx)) ?? t.result("valid", "The account's key signed this sign-in", ctx);
 }
 
 /**

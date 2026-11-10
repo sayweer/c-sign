@@ -8,6 +8,7 @@ import {
   encodeEntry,
   ozEd25519Signer,
   signOzMessageWithEd25519,
+  signSignInWithKeypair,
   type OzEd25519Key,
   type SignedMessage,
 } from "c-sign";
@@ -55,8 +56,8 @@ async function signIn(account: string, key: OzEd25519Key): Promise<string> {
   return encodeEntry(signed);
 }
 
-const post = async (signature: string) =>
-  (await fetch(`${SERVER}/verify`, { method: "POST", body: JSON.stringify({ signature }) })).json();
+const post = async (body: { signature: string; address?: string; message?: SignedMessage }) =>
+  (await fetch(`${SERVER}/verify`, { method: "POST", body: JSON.stringify(body) })).json();
 
 const key: OzEd25519Key = { keypair: Keypair.random(), verifierId: OZ_ED25519_VERIFIER };
 console.log("Creating a testnet smart account...");
@@ -64,5 +65,11 @@ const account = await createSmartAccount(key);
 console.log(`Account: ${account}`);
 
 const signature = await signIn(account, key);
-console.log("Sign in:     ", await post(signature));
-console.log("Replay it:   ", await post(signature));
+console.log("Sign in:     ", await post({ signature }));
+console.log("Replay it:   ", await post({ signature }));
+
+// A G... account signs the same kind of challenge with SEP-53 (Freighter: signMessage). No account on-chain needed.
+const g = Keypair.random();
+const challenge = (await (await fetch(`${SERVER}/challenge`)).json()) as SignedMessage;
+const gSignature = signSignInWithKeypair(challenge, g, TESTNET.networkPassphrase);
+console.log("G sign in:   ", await post({ signature: gSignature, address: g.publicKey(), message: challenge }));
