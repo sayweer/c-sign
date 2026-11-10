@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import { Address, hash, xdr, type Keypair } from "@stellar/stellar-sdk";
 import { addressCredentials, entrySignaturePayload } from "../entry.js";
 import { CSignError } from "../errors.js";

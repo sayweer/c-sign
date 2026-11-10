@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import { xdr, type Keypair } from "@stellar/stellar-sdk";
 import { addressCredentials, entrySignaturePayload } from "../entry.js";
 import { parseMessageEntry } from "../wallet.js";

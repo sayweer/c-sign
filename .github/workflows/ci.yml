@@ -52,3 +52,7 @@ jobs:
         run: |
           pnpm --filter c-sign typecheck
           pnpm --filter c-sign test
+
+      # Chrome is preinstalled on ubuntu-latest; the bundle has no Buffer polyfill.
+      - name: Browser smoke test
+        run: pnpm --filter c-sign test:browser

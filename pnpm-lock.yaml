@@ -64,6 +64,10 @@ importers:
         version: 8.3.1(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)
 
   packages/c-sign:
+    dependencies:
+      buffer:
+        specifier: ^6.0.3
+        version: 6.0.3
     devDependencies:
       '@stellar/stellar-sdk':
         specifier: 16.3.0
@@ -71,6 +75,9 @@ importers:
       '@types/node':
         specifier: ^26.6.3
         version: 26.6.3
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       passkey-kit:
         specifier: 0.20.0
         version: 0.20.0(@stellar/stellar-sdk@16.3.0(debug@4.4.3))

@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import { xdr } from "@stellar/stellar-sdk";
 import { CSignError } from "./errors.js";
 

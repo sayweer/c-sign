@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import { Account, Address, Keypair, Operation, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
 import { AUTH_OK, REFERENCE_WASM_HASH, VERIFY_FUNCTION } from "./constants.js";
 import { CSignError } from "./errors.js";

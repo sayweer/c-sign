@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import { Address, rpc, xdr } from "@stellar/stellar-sdk";
 import { REFERENCE_WASM_HASH, VERIFY_FUNCTION } from "./constants.js";
 import { buildVerifyInvocation } from "./entry.js";

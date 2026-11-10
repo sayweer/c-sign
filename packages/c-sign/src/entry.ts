@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import { Address, buildAuthorizationEntryPreimage, hash, xdr } from "@stellar/stellar-sdk";
 import { VERIFY_FUNCTION } from "./constants.js";
 import { messageToScVal, type SignedMessage } from "./message.js";
