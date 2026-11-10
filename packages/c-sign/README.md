@@ -13,17 +13,21 @@ npm install c-sign @stellar/stellar-sdk
 ## Sign someone in
 
 ```ts
-import { verifySignIn, TESTNET } from "c-sign";
+import { MemoryNonceStore, createSignInMessage, verifySignIn, TESTNET } from "c-sign";
 
+const nonces = new MemoryNonceStore();   // one server process; see below for several
+const DOMAIN = "example.com";            // from your configuration, not from the request
+
+// GET /challenge: the message the wallet signs
+const message = createSignInMessage({ domain: DOMAIN, statement: "Sign in to Example", ...nonces.issue() });
+
+// POST /verify: the signature the wallet returns
 const result = await verifySignIn({
   signature,                       // base64 SorobanAuthorizationEntry from the wallet
   rpcUrl: TESTNET.rpcUrl,
   networkPassphrase: TESTNET.networkPassphrase,
-  domain: "example.com",           // from your configuration, not from the request
-  nonces: {
-    issuedAt: (nonce) => store.issuedAt(nonce),      // when you issued it; undefined if unknown or used
-    consume: (nonce) => store.markUsedOnce(nonce),   // atomic; called only on a valid result
-  },
+  domain: DOMAIN,
+  nonces,                          // consumed atomically, only on a valid result
 });
 
 if (result.status === "valid") startSession(result.account);
@@ -32,6 +36,27 @@ if (result.status === "valid") startSession(result.account);
 `status` is `valid`, `invalid` or `inconclusive`, and `steps` lists every check with its outcome. Grant access only on `valid`; `inconclusive` means the check could not be completed (for example an RPC failure) and may be retried. These functions do not throw.
 
 `valid` means the account's current rules accept this message. It does not say which signer or rule did, so a session key allowed to act as the account can also sign in as it.
+
+`MemoryNonceStore` keeps nonces in one process and forgets them on restart. With several instances or serverless functions, implement `NonceStore` on a shared store; with Redis, for example:
+
+```ts
+const LIFETIME = 300; // seconds, the default challengeLifetimeSeconds
+
+async function issue() {
+  const nonce = createNonce();
+  const issuedAt = Math.floor(Date.now() / 1000);
+  await redis.set(`csign:${nonce}`, issuedAt, { EX: LIFETIME });
+  return { nonce, issuedAt };
+}
+
+const nonces = {
+  issuedAt: async (nonce: string) => {
+    const v = await redis.get(`csign:${nonce}`);
+    return v === null ? undefined : Number(v);
+  },
+  consume: async (nonce: string) => (await redis.getDel(`csign:${nonce}`)) !== null, // atomic
+};
+```
 
 ## Check a message without signing anyone in
 

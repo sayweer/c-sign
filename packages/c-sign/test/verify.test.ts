@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Address, Keypair, Networks, StrKey, rpc, xdr } from "@stellar/stellar-sdk";
 import {
   buildMessageEntry,
+  createSignInMessage,
+  MemoryNonceStore,
   encodeEntry,
   messageToScVal,
   REFERENCE_WASM_HASH,
@@ -228,5 +230,18 @@ describe("verifySignIn, nonce consumption", () => {
     expect(r.status).toBe("valid");
     expect(consume).toHaveBeenCalledExactlyOnceWith(message.nonce);
     expect(stepStatus(r, "consume")).toBe("pass");
+  });
+
+  it("works with MemoryNonceStore and createSignInMessage: valid once, then a replay is invalid", async () => {
+    const verifierId = StrKey.encodeContract(Buffer.alloc(32, 24));
+    authorized(verifierId);
+    const store = new MemoryNonceStore({ now: () => now });
+    const signed = createSignInMessage({ domain: message.domain, statement: "Sign in", ...store.issue() });
+    const signature = encodeEntry(buildMessageEntry({ verifierId, account, message: signed, expirationLedger: 1000 }));
+    const once = () => verifySignIn({ signature, rpcUrl, allowHttp: true, networkPassphrase, domain: message.domain, now, nonces: store });
+    expect((await once()).status).toBe("valid");
+    const replay = await once();
+    expect(replay.status).toBe("invalid");
+    expect(stepStatus(replay, "freshness")).toBe("fail");
   });
 });
