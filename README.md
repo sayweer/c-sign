@@ -38,6 +38,8 @@ Two independent instances of the same Wasm, to show that none is canonical. Both
 
 The fake verifier skips `require_auth` and still returns `AuthOk`; it shows that a relying party that does not pin the Wasm hash can be fooled. The non-reverting verifier succeeds after `require_auth`; it shows the nonce burn that the reference design avoids.
 
+**Mainnet:** not deployed yet. `IDENTITY=<funded identity> scripts/deploy-mainnet.sh` deploys two instances of the reference verifier (no fixtures), checks the built and the deployed hashes, extends TTLs and writes `deployments/mainnet.json`. It never creates or funds an identity and asks for confirmation before spending XLM. Any instance running the pinned hash is as good as these two.
+
 ## Quickstart
 
 ```sh
