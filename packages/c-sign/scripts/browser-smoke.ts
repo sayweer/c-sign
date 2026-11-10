@@ -25,8 +25,8 @@ const bundle = await build({
 });
 const dir = mkdtempSync(join(tmpdir(), "c-sign-browser-"));
 const page = join(dir, "index.html");
-const script = bundle.outputFiles[0]!.text.replaceAll("</script", "<\\/script");
-writeFileSync(page, `<!doctype html><html><body><script>${script}</script></body></html>`);
+writeFileSync(join(dir, "smoke.js"), bundle.outputFiles[0]!.text);
+writeFileSync(page, `<!doctype html><html><body><script src="smoke.js"></script></body></html>`);
 
 const dom = execFileSync(chrome, ["--headless=new", "--disable-gpu", "--no-sandbox", "--dump-dom", `file://${page}`], {
   encoding: "utf8",

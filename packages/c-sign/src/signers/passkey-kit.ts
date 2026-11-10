@@ -1,7 +1,8 @@
-import { Buffer } from "buffer";
-import { xdr, type Keypair } from "@stellar/stellar-sdk";
-import { addressCredentials, entrySignaturePayload } from "../entry.js";
+import { xdr } from "@stellar/stellar-sdk";
+import { compareBytes } from "../bytes.js";
+import { encodeEntry, entrySignaturePayload, toEntry, withSignature, type EntryInput } from "../entry.js";
 import { parseMessageEntry } from "../wallet.js";
+import type { Ed25519Keypair } from "./openzeppelin.js";
 
 /**
  * Signing helpers for passkey-kit smart wallets.
@@ -12,26 +13,37 @@ import { parseMessageEntry } from "../wallet.js";
  * is by simulation.
  */
 
-/** The method of passkey-kit's `PasskeyKit` used here. Tested against 0.14.0 and 0.20.0, which is not a dependency of this package. */
-export interface PasskeyKitSigning<Signer> {
-  signAuthEntry(entry: xdr.SorobanAuthorizationEntry, signer?: Signer): Promise<xdr.SorobanAuthorizationEntry>;
+/** The method of passkey-kit's `PasskeyKit` used here. Tested against 0.14.0 and 0.20.0, which are not dependencies of this package. */
+export interface PasskeyKitSigning<KitEntry, Signer> {
+  signAuthEntry(entry: KitEntry, signer?: Signer): Promise<EntryInput>;
+}
+
+export interface PasskeyKitSignOptions<KitEntry, Signer> {
+  /** One of the kit's signer classes; omitted, the kit prompts for its connected passkey. */
+  signer?: Signer;
+  /**
+   * Turns base64 XDR into an entry of the SDK the kit uses. Needed when the kit uses a
+   * different stellar-sdk major than this library (passkey-kit 0.20 and earlier use 16):
+   * `(b64) => xdr.SorobanAuthorizationEntry.fromXDR(b64, "base64")`, with `xdr` imported
+   * from that SDK. Defaults to this library's SDK.
+   */
+  decode?: (base64: string) => KitEntry;
 }
 
 /**
  * Signs a C-Sign message entry through a passkey-kit instance, after the offline
- * checks of {@link parseMessageEntry}. `signer` is one of the kit's signer classes;
- * omitted, the kit prompts for its connected passkey. A wallet calls
- * {@link checkMessageRequest} first, for the origin and the verifier. Returns a signed copy.
+ * checks of {@link parseMessageEntry}. A wallet calls {@link checkMessageRequest}
+ * first, for the origin and the verifier. Returns a signed copy.
  */
-export async function signMessageWithPasskeyKit<Signer>(
-  kit: PasskeyKitSigning<Signer>,
-  entry: xdr.SorobanAuthorizationEntry,
-  signer?: Signer,
+export async function signMessageWithPasskeyKit<KitEntry, Signer>(
+  kit: PasskeyKitSigning<KitEntry, Signer>,
+  entry: EntryInput,
+  options: PasskeyKitSignOptions<KitEntry, Signer> = {},
 ): Promise<xdr.SorobanAuthorizationEntry> {
   parseMessageEntry(entry);
-  const signed = await kit.signAuthEntry(xdr.SorobanAuthorizationEntry.fromXDR(entry.toXDR()), signer);
-  // The kit may carry its own copy of the SDK; hand back an entry of this one.
-  return xdr.SorobanAuthorizationEntry.fromXDR(signed.toXDR());
+  const base64 = encodeEntry(entry);
+  const forKit = options.decode ? options.decode(base64) : (xdr.SorobanAuthorizationEntry.fromXdr(base64, "base64") as KitEntry);
+  return toEntry(await kit.signAuthEntry(forKit, options.signer));
 }
 
 /**
@@ -42,25 +54,13 @@ export async function signMessageWithPasskeyKit<Signer>(
  * it and verification returns `invalid`. Keep it that way for recovery keys; adding the
  * verifier to a recovery key's limits turns that key into a sign-in key for every domain.
  */
-export function signPasskeyKitMessageWithEd25519(
-  entry: xdr.SorobanAuthorizationEntry,
-  keys: Keypair[],
-  networkPassphrase: string,
-): xdr.SorobanAuthorizationEntry {
+export function signPasskeyKitMessageWithEd25519(entry: EntryInput, keys: Ed25519Keypair[], networkPassphrase: string): xdr.SorobanAuthorizationEntry {
   parseMessageEntry(entry);
-  const copy = xdr.SorobanAuthorizationEntry.fromXDR(entry.toXDR());
-  const payload = entrySignaturePayload(copy, networkPassphrase);
+  const payload = entrySignaturePayload(entry, networkPassphrase);
   const signatures = [...keys]
-    .sort((a, b) => Buffer.compare(a.rawPublicKey(), b.rawPublicKey()))
-    .map(
-      (key) =>
-        new xdr.ScMapEntry({
-          key: taggedBytes(Buffer.from(key.rawPublicKey())),
-          val: taggedBytes(key.sign(payload)),
-        }),
-    );
-  addressCredentials(copy).signature(xdr.ScVal.scvVec([xdr.ScVal.scvMap(signatures)]));
-  return copy;
+    .sort((a, b) => compareBytes(a.rawPublicKey(), b.rawPublicKey()))
+    .map((key) => new xdr.ScMapEntry({ key: taggedBytes(key.rawPublicKey()), val: taggedBytes(key.sign(payload)) }));
+  return withSignature(entry, xdr.ScVal.scvVec([xdr.ScVal.scvMap(signatures)]));
 }
 
-const taggedBytes = (bytes: Buffer) => xdr.ScVal.scvVec([xdr.ScVal.scvSymbol("Ed25519"), xdr.ScVal.scvBytes(bytes)]);
+const taggedBytes = (bytes: Uint8Array) => xdr.ScVal.scvVec([xdr.ScVal.scvSymbol("Ed25519"), xdr.ScVal.scvBytes(bytes)]);

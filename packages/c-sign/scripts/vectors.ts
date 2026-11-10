@@ -24,12 +24,14 @@ import {
   type OzEd25519Key,
   type SignedMessage,
 } from "../src/index.js";
+import { toHex } from "../src/bytes.js";
+import { asV1, credsV2, keyName, mapEntries, withCall, withCredentialAddress, withCredentials, withExtraKey, withRoot } from "../test/helpers.js";
 
 export const VECTORS_PATH = fileURLToPath(new URL("../../../vectors/c-sign-v1.json", import.meta.url));
 
-const sha256 = (text: string) => hash(Buffer.from(text, "utf8"));
+const sha256 = (text: string) => hash(new TextEncoder().encode(text));
 const contractId = (label: string) => StrKey.encodeContract(sha256(label));
-const b64 = (val: { toXDR(format: "base64"): string }) => val.toXDR("base64");
+const b64 = (val: { toXdr(format: "base64"): string }) => val.toXdr("base64");
 
 const NETWORK = Networks.TESTNET;
 const VERIFIER = contractId("c-sign vector verifier");
@@ -52,11 +54,14 @@ const MINIMAL: SignedMessage = { version: "1", domain: DOMAIN, statement: "Sign 
 /** Plain JSON view of an encoded message, with the SPEC's key names. */
 function fields(val: xdr.ScVal): Record<string, string | number | string[]> {
   const out: Record<string, string | number | string[]> = {};
-  for (const e of val.map() ?? []) {
-    const v = e.val();
-    const kind = v.switch().name;
-    out[e.key().sym().toString()] =
-      kind === "scvU64" ? Number(v.u64().toString()) : kind === "scvVec" ? (v.vec() ?? []).map((s) => s.str().toString()) : v.str().toString();
+  for (const e of mapEntries(val)) {
+    const v = e.val;
+    out[keyName(e)] =
+      v.type === "scvU64"
+        ? Number(v.u64)
+        : v.type === "scvVec"
+          ? (v.vec ?? []).map((s) => xdr.expectUnionVariant(s, "scvString").str.toString())
+          : xdr.expectUnionVariant(v, "scvString").str.toString();
   }
   return out;
 }
@@ -87,13 +92,13 @@ function validMessages() {
   ];
   return cases.map(({ name, description, message }) => {
     const val = messageToScVal(message);
-    return { name, description, fields: fields(val), msg_xdr: b64(val), msg_xdr_bytes: val.toXDR().length };
+    return { name, description, fields: fields(val), msg_xdr: b64(val), msg_xdr_bytes: val.toXdr().length };
   });
 }
 
 function invalidMessages() {
   const raw = (m: SignedMessage) => messageToScVal(m, false);
-  const withEntries = (map: (entries: xdr.ScMapEntry[]) => xdr.ScMapEntry[]) => xdr.ScVal.scvMap(map(raw(MINIMAL).map() ?? []));
+  const withEntries = (map: (entries: xdr.ScMapEntry[]) => xdr.ScMapEntry[]) => xdr.ScVal.scvMap(map(mapEntries(raw(MINIMAL))));
   const cases: { name: string; description: string; val: xdr.ScVal }[] = [
     {
       name: "unknown_key",
@@ -105,10 +110,10 @@ function invalidMessages() {
       name: "wrong_type",
       description: "issued_at as String instead of U64",
       val: withEntries((e) =>
-        e.map((x) => (x.key().sym().toString() === "issued_at" ? new xdr.ScMapEntry({ key: x.key(), val: xdr.ScVal.scvString("now") }) : x)),
+        e.map((x) => (keyName(x) === "issued_at" ? new xdr.ScMapEntry({ key: x.key, val: xdr.ScVal.scvString("now") }) : x)),
       ),
     },
-    { name: "missing_required", description: "nonce missing", val: withEntries((e) => e.filter((x) => x.key().sym().toString() !== "nonce")) },
+    { name: "missing_required", description: "nonce missing", val: withEntries((e) => e.filter((x) => keyName(x) !== "nonce")) },
     { name: "unsupported_version", description: 'version "2"', val: raw({ ...MINIMAL, version: "2" }) },
     { name: "short_nonce", description: "nonce shorter than 8 characters", val: raw({ ...MINIMAL, nonce: "abc123" }) },
     { name: "non_alphanumeric_nonce", description: "nonce with a non-alphanumeric character", val: raw({ ...MINIMAL, nonce: "abcDEF-123456" }) },
@@ -128,7 +133,7 @@ function invalidMessages() {
       name: "statement_invalid_utf8",
       description: "statement bytes 53 FF 69 are not valid UTF-8",
       val: withEntries((e) =>
-        e.map((x) => (x.key().sym().toString() === "statement" ? new xdr.ScMapEntry({ key: x.key(), val: xdr.ScVal.scvString(Buffer.from([0x53, 0xff, 0x69])) }) : x)),
+        e.map((x) => (keyName(x) === "statement" ? new xdr.ScMapEntry({ key: x.key, val: xdr.ScVal.scvString(new Uint8Array([0x53, 0xff, 0x69])) }) : x)),
       ),
     },
     { name: "domain_uppercase", description: "domain not in lower case", val: raw({ ...MINIMAL, domain: "Demo.c-sign.dev" }) },
@@ -160,7 +165,7 @@ function entries() {
       account: ACCOUNT,
       message,
       expirationLedger: EXPIRATION_LEDGER,
-      nonce: xdr.Int64.fromString(nonce),
+      nonce: BigInt(nonce),
     });
     return {
       name,
@@ -175,7 +180,7 @@ function entries() {
       },
       unsigned_entry_xdr: encodeEntry(entry),
       preimage_xdr: b64(buildAuthorizationEntryPreimage(entry, EXPIRATION_LEDGER, network)),
-      signature_payload_hex: entrySignaturePayload(entry, network).toString("hex"),
+      signature_payload_hex: toHex(entrySignaturePayload(entry, network)),
     };
   });
 }
@@ -186,7 +191,7 @@ function ozSigning() {
     account: ACCOUNT,
     message: MINIMAL,
     expirationLedger: EXPIRATION_LEDGER,
-    nonce: xdr.Int64.fromString("1234567890123456789"),
+    nonce: 1234567890123456789n,
   });
   const cases = [
     { name: "single_signer_default_rule", description: "One Ed25519 signer under the Default rule (id 0)", keys: [KEYS[0]], ruleIds: [0] },
@@ -206,7 +211,7 @@ function ozSigning() {
     cases.map(({ name, description, keys, ruleIds }) => {
       const digest = ozAuthDigest(entry, NETWORK, scheme, ruleIds);
       const signed = signOzMessageWithEd25519(entry, keys, NETWORK, scheme, ruleIds);
-      const creds = signed.credentials().addressV2();
+      const creds = xdr.expectUnionVariant(signed.credentials, "sorobanCredentialsAddressV2").addressV2;
       return {
         name: name + suffix,
         description,
@@ -215,13 +220,13 @@ function ozSigning() {
         ...(scheme === "preimage-v1" && {
           auth_digest_preimage_xdr: b64(ozAuthDigestPreimage(ACCOUNT, entrySignaturePayload(entry, NETWORK), ruleIds)),
         }),
-        auth_digest_hex: digest.toString("hex"),
+        auth_digest_hex: toHex(digest),
         signatures: keys.map((k) => ({
           key: KEYS.indexOf(k) + 1,
           signer_xdr: b64(ozEd25519Signer(k)),
-          signature_hex: k.keypair.sign(digest).toString("hex"),
+          signature_hex: toHex(k.keypair.sign(digest)),
         })),
-        auth_payload_xdr: b64(creds.signature()),
+        auth_payload_xdr: b64(creds.signature),
         signed_entry_xdr: encodeEntry(signed),
       };
     }),
@@ -230,20 +235,15 @@ function ozSigning() {
 
 /** An entry for `message` whose msg is encoded as given, without validating it. */
 function rawEntry(message: SignedMessage, verifierId = VERIFIER) {
-  const e = buildMessageEntry({ verifierId, account: ACCOUNT, message: MINIMAL, expirationLedger: EXPIRATION_LEDGER, nonce: xdr.Int64.fromString("7") });
-  e.rootInvocation().function().contractFn().args([Address.fromString(ACCOUNT).toScVal(), messageToScVal(message, false)]);
-  return e;
+  const e = buildMessageEntry({ verifierId, account: ACCOUNT, message: MINIMAL, expirationLedger: EXPIRATION_LEDGER, nonce: 7n });
+  return withCall(e, () => ({ args: [Address.fromString(ACCOUNT).toScVal(), messageToScVal(message, false)] }));
 }
 
 type VerifyContext = { domain: string; now: number; address?: string; issued_nonces?: { nonce: string; issued_at: number }[] };
 
 function structural() {
   const base = () => rawEntry(MINIMAL);
-  const mutate = (fn: (e: xdr.SorobanAuthorizationEntry) => void) => {
-    const e = base();
-    fn(e);
-    return encodeEntry(e);
-  };
+  const mutate = (fn: (e: xdr.SorobanAuthorizationEntry) => xdr.SorobanAuthorizationEntry) => encodeEntry(fn(base()));
   const context: VerifyContext = { domain: DOMAIN, now: ISSUED_AT };
   const signIn = (now: number): VerifyContext => ({ domain: DOMAIN, now, issued_nonces: [{ nonce: MINIMAL.nonce, issued_at: ISSUED_AT }] });
   const cases: { name: string; description: string; signature: string; context: VerifyContext; step: string }[] = [
@@ -258,31 +258,28 @@ function structural() {
     {
       name: "wrong_function",
       description: "Root call is not verify_message",
-      signature: mutate((e) => e.rootInvocation().function().contractFn().functionName("transfer")),
+      signature: mutate((e) => withCall(e, () => ({ functionName: "transfer" }))),
       context,
       step: "shape",
     },
     {
       name: "sub_invocations",
       description: "Entry authorizes a sub-invocation",
-      signature: mutate((e) => e.rootInvocation().subInvocations([base().rootInvocation()])),
+      signature: mutate((e) => withRoot(e, { subInvocations: [base().rootInvocation] })),
       context,
       step: "shape",
     },
     {
       name: "extra_argument",
       description: "verify_message with three arguments",
-      signature: mutate((e) => {
-        const call = e.rootInvocation().function().contractFn();
-        call.args([...call.args(), xdr.ScVal.scvVoid()]);
-      }),
+      signature: mutate((e) => withCall(e, (call) => ({ args: [...call.args, xdr.ScVal.scvVoid()] }))),
       context,
       step: "shape",
     },
     {
       name: "v1_credentials",
       description: "SOROBAN_CREDENTIALS_ADDRESS (V1) instead of V2",
-      signature: mutate((e) => e.credentials(xdr.SorobanCredentials.sorobanCredentialsAddress(e.credentials().addressV2()))),
+      signature: mutate(asV1),
       context,
       step: "credentials",
     },
@@ -290,9 +287,10 @@ function structural() {
       name: "delegates_credentials",
       description: "SOROBAN_CREDENTIALS_ADDRESS_WITH_DELEGATES (CAP-71) instead of V2",
       signature: mutate((e) =>
-        e.credentials(
+        withCredentials(
+          e,
           xdr.SorobanCredentials.sorobanCredentialsAddressWithDelegates(
-            new xdr.SorobanAddressCredentialsWithDelegates({ addressCredentials: e.credentials().addressV2(), delegates: [] }),
+            new xdr.SorobanAddressCredentialsWithDelegates({ addressCredentials: credsV2(e), delegates: [] }),
           ),
         ),
       ),
@@ -302,7 +300,7 @@ function structural() {
     {
       name: "credentials_for_other_account",
       description: "credentials.address differs from the account argument",
-      signature: mutate((e) => e.credentials().addressV2().address(Address.fromString(OTHER_ACCOUNT).toScAddress())),
+      signature: mutate((e) => withCredentialAddress(e, OTHER_ACCOUNT)),
       context,
       step: "credentials",
     },
@@ -311,9 +309,8 @@ function structural() {
       name: "invalid_message",
       description: "msg has an unknown key",
       signature: mutate((e) => {
-        const msg = messageToScVal(MINIMAL);
-        msg.map()!.push(new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("zzz"), val: xdr.ScVal.scvVoid() }));
-        e.rootInvocation().function().contractFn().args([Address.fromString(ACCOUNT).toScVal(), msg]);
+        const msg = withExtraKey(messageToScVal(MINIMAL), "zzz");
+        return withCall(e, () => ({ args: [Address.fromString(ACCOUNT).toScVal(), msg] }));
       }),
       context,
       step: "message",

@@ -17,7 +17,7 @@ describe("createMessageEntry", () => {
     latest(5000);
     const { entry, expirationLedger } = await createMessageEntry(params);
     expect(expirationLedger).toBe(5720);
-    expect(addressCredentials(entry).signatureExpirationLedger()).toBe(5720);
+    expect(addressCredentials(entry).signatureExpirationLedger).toBe(5720);
     expect(parseMessageEntry(entry)).toMatchObject({ account, verifierId, message });
   });
 

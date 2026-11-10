@@ -1,6 +1,6 @@
-import { Buffer } from "buffer";
-import { Address, hash, xdr, type Keypair } from "@stellar/stellar-sdk";
-import { addressCredentials, entrySignaturePayload } from "../entry.js";
+import { Address, hash, xdr } from "@stellar/stellar-sdk";
+import { compareBytes, concatBytes } from "../bytes.js";
+import { addressCredentials, entrySignaturePayload, toEntry, withSignature, type EntryInput } from "../entry.js";
 import { CSignError } from "../errors.js";
 import { isMessageEntry, parseMessageEntry } from "../wallet.js";
 
@@ -25,7 +25,7 @@ const ruleIdsScVal = (contextRuleIds: number[]) => xdr.ScVal.scvVec(contextRuleI
  * `AuthDigestPreimage { account, signature_payload, context_rule_ids }` as the 0.8.0 account encodes it.
  * Its sha256 is the `preimage-v1` digest; a Delegated signer authorizes `__check_auth` with this struct as its argument.
  */
-export function ozAuthDigestPreimage(account: string, signaturePayload: Buffer, contextRuleIds: number[]): xdr.ScVal {
+export function ozAuthDigestPreimage(account: string, signaturePayload: Uint8Array, contextRuleIds: number[]): xdr.ScVal {
   if (signaturePayload.length !== 32) throw new Error("signature_payload must be 32 bytes");
   // Map keys in host (sorted) order.
   return xdr.ScVal.scvMap([
@@ -37,21 +37,21 @@ export function ozAuthDigestPreimage(account: string, signaturePayload: Buffer, 
 
 /** The digest each signer signs for this entry; the scheme depends on the account's implementation version. */
 export function ozAuthDigest(
-  entry: xdr.SorobanAuthorizationEntry,
+  entry: EntryInput,
   networkPassphrase: string,
   scheme: OzDigestScheme,
   contextRuleIds: number[] = DEFAULT_CONTEXT_RULE_IDS,
-): Buffer {
+): Uint8Array {
   const payload = entrySignaturePayload(entry, networkPassphrase);
-  if (scheme === "legacy-concat") return hash(Buffer.concat([payload, ruleIdsScVal(contextRuleIds).toXDR()]));
+  if (scheme === "legacy-concat") return hash(concatBytes(payload, ruleIdsScVal(contextRuleIds).toXdr()));
   // Plain-JS callers of the old positional API would otherwise land here with a plausible but wrong digest.
   if (scheme !== "preimage-v1") throw new Error(`Unknown OpenZeppelin digest scheme: ${String(scheme)}`);
-  const account = Address.fromScAddress(addressCredentials(entry).address()).toString();
-  return hash(ozAuthDigestPreimage(account, payload, contextRuleIds).toXDR());
+  const account = Address.fromScAddress(addressCredentials(entry).address).toString();
+  return hash(ozAuthDigestPreimage(account, payload, contextRuleIds).toXdr());
 }
 
 /** `Signer::External(verifier, key_data)` as the account stores it. */
-export function externalSigner(verifierId: string, keyData: Buffer): xdr.ScVal {
+export function externalSigner(verifierId: string, keyData: Uint8Array): xdr.ScVal {
   return xdr.ScVal.scvVec([
     xdr.ScVal.scvSymbol("External"),
     Address.fromString(verifierId).toScVal(),
@@ -61,25 +61,25 @@ export function externalSigner(verifierId: string, keyData: Buffer): xdr.ScVal {
 
 // Host ordering of signer keys (Vec<Symbol, Address, Bytes>): element-wise by content.
 function compareSignerKeys(a: xdr.ScVal, b: xdr.ScVal): number {
-  const av = a.vec() ?? [];
-  const bv = b.vec() ?? [];
+  const av = a.type === "scvVec" ? (a.vec ?? []) : [];
+  const bv = b.type === "scvVec" ? (b.vec ?? []) : [];
   for (let i = 0; i < Math.min(av.length, bv.length); i++) {
-    const x = av[i];
-    const y = bv[i];
+    const x = av[i]!;
+    const y = bv[i]!;
     let cmp: number;
-    if (x.switch().name === "scvBytes") cmp = Buffer.compare(Buffer.from(x.bytes()), Buffer.from(y.bytes()));
-    else if (x.switch().name === "scvAddress") cmp = Buffer.compare(x.address().toXDR(), y.address().toXDR());
-    else cmp = Buffer.compare(x.toXDR(), y.toXDR());
+    if (x.type === "scvBytes" && y.type === "scvBytes") cmp = compareBytes(x.bytes.toBytes(), y.bytes.toBytes());
+    else if (x.type === "scvAddress" && y.type === "scvAddress") cmp = compareBytes(x.address.toXdr(), y.address.toXdr());
+    else cmp = compareBytes(x.toXdr(), y.toXdr());
     if (cmp !== 0) return cmp;
   }
   return av.length - bv.length;
 }
 
 /** Writes `AuthPayload` with signer keys in host order. */
-export function ozAuthPayload(contextRuleIds: number[], signatures: { signer: xdr.ScVal; signature: Buffer }[]): xdr.ScVal {
+export function ozAuthPayload(contextRuleIds: number[], signatures: { signer: xdr.ScVal; signature: Uint8Array }[]): xdr.ScVal {
   const signers = signatures
     .map(({ signer, signature }) => new xdr.ScMapEntry({ key: signer, val: xdr.ScVal.scvBytes(signature) }))
-    .sort((a, b) => compareSignerKeys(a.key(), b.key()));
+    .sort((a, b) => compareSignerKeys(a.key, b.key));
   return xdr.ScVal.scvMap([
     new xdr.ScMapEntry({
       key: xdr.ScVal.scvSymbol("context_rule_ids"),
@@ -89,14 +89,20 @@ export function ozAuthPayload(contextRuleIds: number[], signatures: { signer: xd
   ]);
 }
 
+/** The part of a Stellar SDK `Keypair` the signers use; a `Keypair` from any SDK version fits. */
+export interface Ed25519Keypair {
+  rawPublicKey(): Uint8Array;
+  sign(data: Uint8Array): Uint8Array;
+}
+
 /** An Ed25519 key registered on an account as `External(ed25519Verifier, publicKey)`. */
 export interface OzEd25519Key {
-  keypair: Keypair;
+  keypair: Ed25519Keypair;
   verifierId: string;
 }
 
 export const ozEd25519Signer = (key: OzEd25519Key): xdr.ScVal =>
-  externalSigner(key.verifierId, Buffer.from(key.keypair.rawPublicKey()));
+  externalSigner(key.verifierId, key.keypair.rawPublicKey());
 
 /**
  * Signs an authorization entry for an OpenZeppelin account whose rule requires
@@ -105,7 +111,7 @@ export const ozEd25519Signer = (key: OzEd25519Key): xdr.ScVal =>
  * {@link signOzMessageWithEd25519}. Returns a signed copy.
  */
 export function signOzEntryWithEd25519(
-  entry: xdr.SorobanAuthorizationEntry,
+  entry: EntryInput,
   keys: OzEd25519Key[],
   networkPassphrase: string,
   scheme: OzDigestScheme,
@@ -120,7 +126,7 @@ export function signOzEntryWithEd25519(
  * A wallet calls {@link checkMessageRequest} first, for the origin and the verifier.
  */
 export function signOzMessageWithEd25519(
-  entry: xdr.SorobanAuthorizationEntry,
+  entry: EntryInput,
   keys: OzEd25519Key[],
   networkPassphrase: string,
   scheme: OzDigestScheme,
@@ -132,18 +138,17 @@ export function signOzMessageWithEd25519(
 
 /** Experiments only: signs any address-credential entry, valid or not, without checking it. */
 export function unsafeSignOzEntry(
-  entry: xdr.SorobanAuthorizationEntry,
+  entry: EntryInput,
   keys: OzEd25519Key[],
   networkPassphrase: string,
   scheme: OzDigestScheme,
   contextRuleIds: number[] = DEFAULT_CONTEXT_RULE_IDS,
 ): xdr.SorobanAuthorizationEntry {
-  const copy = xdr.SorobanAuthorizationEntry.fromXDR(entry.toXDR());
-  const digest = ozAuthDigest(copy, networkPassphrase, scheme, contextRuleIds);
+  const e = toEntry(entry);
+  const digest = ozAuthDigest(e, networkPassphrase, scheme, contextRuleIds);
   const payload = ozAuthPayload(
     contextRuleIds,
     keys.map((key) => ({ signer: ozEd25519Signer(key), signature: key.keypair.sign(digest) })),
   );
-  addressCredentials(copy).signature(payload);
-  return copy;
+  return withSignature(e, payload);
 }

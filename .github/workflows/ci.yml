@@ -61,3 +61,9 @@ jobs:
         run: |
           pnpm --filter c-sign build
           pnpm --filter "./examples/*" typecheck
+
+      # An application on stellar-sdk 16 with passkey-kit 0.14 and 0.20, as wallets are built today.
+      - name: Wallet-kit compatibility (stellar-sdk 16)
+        run: |
+          pnpm --filter c-sign-kit-compat typecheck
+          pnpm --filter c-sign-kit-compat test

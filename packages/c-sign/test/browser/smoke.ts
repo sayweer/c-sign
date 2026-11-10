@@ -6,7 +6,6 @@ import {
   decodeEntry,
   encodeEntry,
   entrySignaturePayload,
-  messageFromScVal,
   ozAuthDigest,
   parseMessageEntry,
   signOzMessageWithEd25519,
@@ -31,7 +30,7 @@ function run(): string[] {
   }
 
   const { input } = vectors.entries.cases[0]!;
-  const message = messageFromScVal(decodeEntry(vectors.entries.cases[0]!.unsigned_entry_xdr).rootInvocation().function().contractFn().args()[1]!);
+  const message = parseMessageEntry(vectors.entries.cases[0]!.unsigned_entry_xdr).message;
   const entry = buildMessageEntry({ verifierId: input.verifier, account: input.account, message, expirationLedger: 1000 });
   const key = Keypair.random();
   const oz = signOzMessageWithEd25519(entry, [{ keypair: key, verifierId: input.verifier }], input.network_passphrase, "preimage-v1");

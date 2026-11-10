@@ -1,8 +1,25 @@
-import { Buffer } from "buffer";
 import { Address, buildAuthorizationEntryPreimage, hash, rpc, xdr } from "@stellar/stellar-sdk";
 import { VERIFY_FUNCTION } from "./constants.js";
 import { CSignError } from "./errors.js";
 import { messageToScVal, type SignedMessage } from "./message.js";
+
+/**
+ * An authorization entry as base64 XDR, or as an entry object from any version of
+ * the Stellar SDK (for example a wallet kit that still uses stellar-sdk 16).
+ */
+export type EntryInput =
+  | string
+  | xdr.SorobanAuthorizationEntry
+  | { toXdr(format: "base64"): string }
+  | { toXDR(format: "base64"): string };
+
+/** The entry as an object of the SDK this library uses. Objects from another SDK copy are converted through XDR. */
+export function toEntry(input: EntryInput): xdr.SorobanAuthorizationEntry {
+  if (typeof input === "string") return xdr.SorobanAuthorizationEntry.fromXdr(input, "base64");
+  if (input instanceof xdr.SorobanAuthorizationEntry) return input;
+  const base64 = "toXdr" in input ? input.toXdr("base64") : input.toXDR("base64");
+  return xdr.SorobanAuthorizationEntry.fromXdr(base64, "base64");
+}
 
 /** Contract-call arguments of `verify_message(account, msg)` on a verifier instance. */
 export function buildVerifyArgs(verifierId: string, account: string, message: SignedMessage): xdr.InvokeContractArgs {
@@ -16,18 +33,16 @@ export function buildVerifyArgs(verifierId: string, account: string, message: Si
 /** The root invocation a C-Sign signature authorizes: one call, no sub-invocations. */
 export function buildVerifyInvocation(verifierId: string, account: string, message: SignedMessage): xdr.SorobanAuthorizedInvocation {
   return new xdr.SorobanAuthorizedInvocation({
-    function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
-      buildVerifyArgs(verifierId, account, message),
-    ),
+    function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(buildVerifyArgs(verifierId, account, message)),
     subInvocations: [],
   });
 }
 
 /** A random i64 auth-entry nonce (unrelated to the message nonce). */
-export function randomEntryNonce(): xdr.Int64 {
+export function randomEntryNonce(): bigint {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
-  return xdr.Int64.fromString(new DataView(bytes.buffer).getBigInt64(0, false).toString());
+  return new DataView(bytes.buffer).getBigInt64(0, false);
 }
 
 export interface BuildEntryParams {
@@ -36,7 +51,7 @@ export interface BuildEntryParams {
   message: SignedMessage;
   /** Last ledger at which the signature is valid. */
   expirationLedger: number;
-  nonce?: xdr.Int64;
+  nonce?: bigint;
 }
 
 /** Builds the unsigned entry with address-bound (V2) credentials. The account's wallet fills in the signature. */
@@ -81,24 +96,41 @@ export async function createMessageEntry(
   return { entry, expirationLedger };
 }
 
-export function addressCredentials(entry: xdr.SorobanAuthorizationEntry): xdr.SorobanAddressCredentials {
-  const c = entry.credentials();
-  switch (c.switch().name) {
+export function addressCredentials(entry: EntryInput): xdr.SorobanAddressCredentials {
+  const c = toEntry(entry).credentials;
+  switch (c.type) {
     case "sorobanCredentialsAddress":
-      return c.address();
+      return c.address;
     case "sorobanCredentialsAddressV2":
-      return c.addressV2();
+      return c.addressV2;
     default:
-      throw new Error(`Entry has no address credentials (${c.switch().name})`);
+      throw new Error(`Entry has no address credentials (${c.type})`);
   }
 }
 
-/** The 32-byte payload the account's `__check_auth` receives for this entry. */
-export function entrySignaturePayload(entry: xdr.SorobanAuthorizationEntry, networkPassphrase: string): Buffer {
-  const expiration = addressCredentials(entry).signatureExpirationLedger();
-  return hash(buildAuthorizationEntryPreimage(entry, expiration, networkPassphrase).toXDR());
+/** A copy of the entry with `signature` in its address credentials, keeping their V1 or V2 arm. */
+export function withSignature(entry: EntryInput, signature: xdr.ScVal): xdr.SorobanAuthorizationEntry {
+  const e = toEntry(entry);
+  const creds = addressCredentials(e);
+  const signed = new xdr.SorobanAddressCredentials({
+    address: creds.address,
+    nonce: creds.nonce,
+    signatureExpirationLedger: creds.signatureExpirationLedger,
+    signature,
+  });
+  const credentials =
+    e.credentials.type === "sorobanCredentialsAddress"
+      ? xdr.SorobanCredentials.sorobanCredentialsAddress(signed)
+      : xdr.SorobanCredentials.sorobanCredentialsAddressV2(signed);
+  return new xdr.SorobanAuthorizationEntry({ credentials, rootInvocation: e.rootInvocation });
 }
 
-export const encodeEntry = (entry: xdr.SorobanAuthorizationEntry): string => entry.toXDR("base64");
-export const decodeEntry = (base64: string): xdr.SorobanAuthorizationEntry =>
-  xdr.SorobanAuthorizationEntry.fromXDR(base64, "base64");
+/** The 32-byte payload the account's `__check_auth` receives for this entry. */
+export function entrySignaturePayload(entry: EntryInput, networkPassphrase: string): Uint8Array {
+  const e = toEntry(entry);
+  const expiration = addressCredentials(e).signatureExpirationLedger;
+  return hash(buildAuthorizationEntryPreimage(e, expiration, networkPassphrase).toXdr());
+}
+
+export const encodeEntry = (entry: EntryInput): string => toEntry(entry).toXdr("base64");
+export const decodeEntry = (base64: string): xdr.SorobanAuthorizationEntry => xdr.SorobanAuthorizationEntry.fromXdr(base64, "base64");

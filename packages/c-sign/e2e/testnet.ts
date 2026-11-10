@@ -17,6 +17,7 @@ import {
   entrySignaturePayload,
   ozEd25519Signer,
   signOzEntryWithEd25519,
+  withSignature,
   type OzEd25519Key,
 } from "../src/index.js";
 
@@ -84,14 +85,14 @@ export interface Submitted {
 export async function submit(tx: Transaction): Promise<Submitted> {
   const sent = await server.sendTransaction(tx);
   if (sent.status === "ERROR") {
-    return { hash: sent.hash, status: "REJECTED", resultXdr: sent.errorResult?.toXDR("base64") };
+    return { hash: sent.hash, status: "REJECTED", resultXdr: sent.errorResult?.toXdr("base64") };
   }
   const got = await server.pollTransaction(sent.hash, { attempts: 30 });
   if (got.status === rpc.Api.GetTransactionStatus.SUCCESS) {
     return { hash: sent.hash, status: got.status, returnValue: got.returnValue };
   }
   if (got.status === rpc.Api.GetTransactionStatus.FAILED) {
-    return { hash: sent.hash, status: got.status, resultXdr: got.resultXdr.toXDR("base64") };
+    return { hash: sent.hash, status: got.status, resultXdr: got.resultXdr.toXdr("base64") };
   }
   return { hash: sent.hash, status: got.status };
 }
@@ -137,11 +138,20 @@ export async function deployEd25519Account(sponsor: Keypair, key: Keypair): Prom
   return { id: Address.fromScVal(res.returnValue).toString(), hash: res.hash };
 }
 
+/** A copy of an address-credential entry with another signature expiration ledger. */
+export function withExpiration(entry: xdr.SorobanAuthorizationEntry, ledger: number): xdr.SorobanAuthorizationEntry {
+  const c = addressCredentials(entry);
+  const creds = new xdr.SorobanAddressCredentials({ address: c.address, nonce: c.nonce, signatureExpirationLedger: ledger, signature: c.signature });
+  const credentials =
+    entry.credentials.type === "sorobanCredentialsAddress"
+      ? xdr.SorobanCredentials.sorobanCredentialsAddress(creds)
+      : xdr.SorobanCredentials.sorobanCredentialsAddressV2(creds);
+  return new xdr.SorobanAuthorizationEntry({ credentials, rootInvocation: entry.rootInvocation });
+}
+
 /** The minimal account takes a bare 64-byte Ed25519 signature over the signature payload. */
 export function signEd25519AccountEntry(entry: xdr.SorobanAuthorizationEntry, key: Keypair): xdr.SorobanAuthorizationEntry {
-  const copy = xdr.SorobanAuthorizationEntry.fromXDR(entry.toXDR());
-  addressCredentials(copy).signature(xdr.ScVal.scvBytes(key.sign(entrySignaturePayload(copy, networkPassphrase))));
-  return copy;
+  return withSignature(entry, xdr.ScVal.scvBytes(key.sign(entrySignaturePayload(entry, networkPassphrase))));
 }
 
 /**
@@ -159,12 +169,9 @@ export async function adminCall(
   const sim = await server.simulateTransaction(await build(sponsor, op));
   if (!rpc.Api.isSimulationSuccess(sim)) throw new Error(`Admin simulation failed: ${(sim as { error?: string }).error}`);
   const expiration = sim.latestLedger + 100;
-  const auth = (sim.result?.auth ?? []).map((entry) => {
-    const c = entry.credentials();
-    const creds = c.switch().name === "sorobanCredentialsAddressV2" ? c.addressV2() : c.address();
-    creds.signatureExpirationLedger(expiration);
-    return signOzEntryWithEd25519(entry, keys, networkPassphrase, "legacy-concat");
-  });
+  const auth = (sim.result?.auth ?? []).map((entry) =>
+    signOzEntryWithEd25519(withExpiration(entry, expiration), keys, networkPassphrase, "legacy-concat"),
+  );
   const signedOp = Operation.invokeContractFunction({ contract: accountId, function: fn, args, auth });
   const tx = await server.prepareTransaction(await build(sponsor, signedOp));
   tx.sign(sponsor);
@@ -189,10 +196,10 @@ export async function submitVerifyCall(
   entry: xdr.SorobanAuthorizationEntry,
   sorobanData: xdr.SorobanTransactionData,
 ): Promise<Submitted> {
-  const call = entry.rootInvocation().function().contractFn();
+  const call = xdr.expectUnionVariant(entry.rootInvocation.function, "sorobanAuthorizedFunctionTypeContractFn").contractFn;
   const op = Operation.invokeHostFunction({ func: xdr.HostFunction.hostFunctionTypeInvokeContract(call), auth: [entry] });
   const account = await server.getAccount(sponsor.publicKey());
-  const resourceFee = Number(sorobanData.resourceFee().toString());
+  const resourceFee = Number(sorobanData.resourceFee);
   const tx = new TransactionBuilder(account, { fee: String(resourceFee + 100000), networkPassphrase })
     .addOperation(op)
     .setSorobanData(sorobanData)
@@ -203,17 +210,17 @@ export async function submitVerifyCall(
 }
 
 /** Ledger key of an auth nonce; the entry exists once the nonce is consumed. */
-export function nonceLedgerKey(accountId: string, nonce: xdr.Int64): xdr.LedgerKey {
+export function nonceLedgerKey(accountId: string, nonce: bigint): xdr.LedgerKey {
   return xdr.LedgerKey.contractData(
     new xdr.LedgerKeyContractData({
       contract: Address.fromString(accountId).toScAddress(),
       key: xdr.ScVal.scvLedgerKeyNonce(new xdr.ScNonceKey({ nonce })),
-      durability: xdr.ContractDataDurability.temporary(),
+      durability: xdr.ContractDataDurability.temporary,
     }),
   );
 }
 
-export async function nonceConsumed(accountId: string, nonce: xdr.Int64): Promise<boolean> {
+export async function nonceConsumed(accountId: string, nonce: bigint): Promise<boolean> {
   const res = await server.getLedgerEntries(nonceLedgerKey(accountId, nonce));
   return res.entries.length > 0;
 }
@@ -223,12 +230,12 @@ export const contractInstanceKey = (id: string) =>
     new xdr.LedgerKeyContractData({
       contract: Address.fromString(id).toScAddress(),
       key: xdr.ScVal.scvLedgerKeyContractInstance(),
-      durability: xdr.ContractDataDurability.persistent(),
+      durability: xdr.ContractDataDurability.persistent,
     }),
   );
 
 export const contractCodeKey = (wasmHash: string) =>
-  xdr.LedgerKey.contractCode(new xdr.LedgerKeyContractCode({ hash: Buffer.from(wasmHash, "hex") }));
+  xdr.LedgerKey.contractCode(new xdr.LedgerKeyContractCode({ hash: wasmHash }));
 
 /** Summarises a failed transaction's call trace: which contracts ran and which error ended it. */
 export async function failureTrace(hash: string): Promise<string> {
@@ -236,15 +243,15 @@ export async function failureTrace(hash: string): Promise<string> {
   if (tx.status !== rpc.Api.GetTransactionStatus.FAILED) return tx.status;
   const steps: string[] = [];
   for (const d of tx.diagnosticEventsXdr ?? []) {
-    const event = d.event();
-    const topics = event.body().v0().topics();
-    const kind = topics[0]?.switch().name === "scvSymbol" ? topics[0].sym().toString() : "";
-    if (kind === "fn_return" && topics[1]?.switch().name === "scvSymbol") {
-      steps.push(`${topics[1].sym().toString()} returned`);
-    } else if (kind === "error" && topics[1]?.switch().name === "scvError" && event.contractId()) {
-      const err = topics[1].error();
-      const code = err.switch().name === "sceContract" ? `Contract, #${err.contractCode()}` : err.switch().name;
-      steps.push(`${Address.contract(event.contractId() as unknown as Buffer).toString().slice(0, 8)}… raised Error(${code})`);
+    const event = d.event;
+    const [first, second] = event.body.v0.topics;
+    const kind = first?.type === "scvSymbol" ? first.sym.toString() : "";
+    if (kind === "fn_return" && second?.type === "scvSymbol") {
+      steps.push(`${second.sym.toString()} returned`);
+    } else if (kind === "error" && second?.type === "scvError" && event.contractId) {
+      const err = second.error;
+      const code = err.type === "sceContract" ? `Contract, #${err.contractCode}` : err.type;
+      steps.push(`${Address.contract(event.contractId.toBytes()).toString().slice(0, 8)}… raised Error(${code})`);
     }
   }
   return steps.join(" → ");

@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "16.4.1",
+    "@stellar/stellar-sdk": "^17.4.0",
     "c-sign": "workspace:*"
   },
   "devDependencies": {

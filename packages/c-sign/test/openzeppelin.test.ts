@@ -11,6 +11,8 @@ import {
   type OzDigestScheme,
   type OzEd25519Key,
 } from "../src/index.js";
+import { concatBytes, toHex } from "../src/bytes.js";
+import { keyName, mapEntries } from "./helpers.js";
 
 const ACCOUNT = "CA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAXE";
 
@@ -42,8 +44,8 @@ const RUST_VECTORS = [
 const VECTOR_1_PREIMAGE_XDR =
   "0000001100000001000000030000000f000000076163636f756e74000000001200000001363eaa3867841fbad0f4ed88c779e4fe66e56a2470dc98c0ec9c073d05c7b1030000000f00000010636f6e746578745f72756c655f696473000000100000000100000002000000030000000000000003000000010000000f000000117369676e61747572655f7061796c6f61640000000000000d000000200707070707070707070707070707070707070707070707070707070707070707";
 
-const legacyDigest = (payload: Buffer, ids: number[]) =>
-  hash(Buffer.concat([payload, xdr.ScVal.scvVec(ids.map((id) => xdr.ScVal.scvU32(id))).toXDR()]));
+const legacyDigest = (payload: Uint8Array, ids: number[]) =>
+  hash(concatBytes(payload, xdr.ScVal.scvVec(ids.map((id) => xdr.ScVal.scvU32(id))).toXdr()));
 
 const networkPassphrase = Networks.TESTNET;
 const entry = buildMessageEntry({
@@ -51,50 +53,45 @@ const entry = buildMessageEntry({
   account: ACCOUNT,
   message: { version: "1", domain: "demo.c-sign.dev", statement: "Sign in", nonce: "abcDEF123456", issuedAt: 1_790_000_000 },
   expirationLedger: 1000,
-  nonce: xdr.Int64.fromString("42"),
+  nonce: 42n,
 });
-const KEYS: OzEd25519Key[] = [1, 2].map((n) => ({
+const KEYS = [1, 2].map((n) => ({
   keypair: Keypair.fromRawEd25519Seed(hash(Buffer.from(`oz test key ${n}`))),
   verifierId: StrKey.encodeContract(hash(Buffer.from("oz test ed25519 verifier"))),
 }));
 
 /** The signature bytes `key` placed in the entry's `AuthPayload`. */
-function signatureOf(signed: xdr.SorobanAuthorizationEntry, key: OzEd25519Key): Buffer {
-  const signers = addressCredentials(signed)
-    .signature()
-    .map()!
-    .find((e) => e.key().sym().toString() === "signers")!
-    .val()
-    .map()!;
-  const signer = ozEd25519Signer(key).toXDR("base64");
-  return Buffer.from(signers.find((e) => e.key().toXDR("base64") === signer)!.val().bytes());
+function signatureOf(signed: xdr.SorobanAuthorizationEntry, key: OzEd25519Key): Uint8Array {
+  const signers = mapEntries(mapEntries(addressCredentials(signed).signature).find((e) => keyName(e) === "signers")!.val);
+  const signer = ozEd25519Signer(key).toXdr("base64");
+  return xdr.expectUnionVariant(signers.find((e) => e.key.toXdr("base64") === signer)!.val, "scvBytes").bytes.toBytes();
 }
 
 describe("OpenZeppelin auth digest", () => {
   it("matches the Rust stellar-accounts vectors for both schemes", () => {
     for (const v of RUST_VECTORS) {
-      expect(hash(ozAuthDigestPreimage(v.account, v.payload, v.ids).toXDR()).toString("hex"), v.account).toBe(v.preimageV1);
-      expect(legacyDigest(v.payload, v.ids).toString("hex"), v.account).toBe(v.legacy);
+      expect(toHex(hash(ozAuthDigestPreimage(v.account, v.payload, v.ids).toXdr())), v.account).toBe(v.preimageV1);
+      expect(toHex(legacyDigest(v.payload, v.ids)), v.account).toBe(v.legacy);
     }
   });
 
   it("encodes AuthDigestPreimage as a sorted Symbol-keyed map", () => {
     const v = RUST_VECTORS[0];
-    expect(ozAuthDigestPreimage(v.account, v.payload, v.ids).toXDR("hex")).toBe(VECTOR_1_PREIMAGE_XDR);
+    expect(ozAuthDigestPreimage(v.account, v.payload, v.ids).toXdr("hex")).toBe(VECTOR_1_PREIMAGE_XDR);
   });
 
   it("binds the entry's credentials address in preimage-v1, and differs from legacy-concat", () => {
     const ids = [0, 2];
     const payload = entrySignaturePayload(entry, networkPassphrase);
-    const account = Address.fromScAddress(addressCredentials(entry).address()).toString();
+    const account = Address.fromScAddress(addressCredentials(entry).address).toString();
     const v1 = ozAuthDigest(entry, networkPassphrase, "preimage-v1", ids);
-    expect(v1).toEqual(hash(ozAuthDigestPreimage(account, payload, ids).toXDR()));
+    expect(v1).toEqual(hash(ozAuthDigestPreimage(account, payload, ids).toXdr()));
     expect(ozAuthDigest(entry, networkPassphrase, "legacy-concat", ids)).toEqual(legacyDigest(payload, ids));
     expect(v1).not.toEqual(ozAuthDigest(entry, networkPassphrase, "legacy-concat", ids));
   });
 
   it("signs with the chosen scheme and leaves the input untouched", () => {
-    const before = entry.toXDR("base64");
+    const before = entry.toXdr("base64");
     const schemes: [OzDigestScheme, OzDigestScheme][] = [
       ["legacy-concat", "preimage-v1"],
       ["preimage-v1", "legacy-concat"],
@@ -109,8 +106,8 @@ describe("OpenZeppelin auth digest", () => {
         expect(key.keypair.verify(wrong, sig), scheme).toBe(false);
       }
     }
-    expect(entry.toXDR("base64")).toBe(before);
-    expect(addressCredentials(entry).signature().switch().name).toBe("scvVoid");
+    expect(entry.toXdr("base64")).toBe(before);
+    expect(addressCredentials(entry).signature.type).toBe("scvVoid");
   });
 
   it("rejects an unknown scheme and a payload that is not 32 bytes", () => {

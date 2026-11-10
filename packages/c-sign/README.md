@@ -7,8 +7,10 @@ A contract account has no single key, so there is nothing to check a signature a
 The specification is a draft and the library has not been audited. Reference verifier instances are deployed on testnet only.
 
 ```sh
-npm install c-sign @stellar/stellar-sdk
+npm install c-sign
 ```
+
+It works in Node.js 22.12+, browsers and edge runtimes, with no Buffer polyfill. It uses stellar-sdk 17 internally and takes authorization entries as base64 XDR or as entry objects from any stellar-sdk version, so an application still on stellar-sdk 16 (as the wallet kits are today) can use it as it is.
 
 ## Sign someone in
 
@@ -89,10 +91,10 @@ The signature stays valid for 720 ledgers (about an hour) unless you pass `valid
 ## In a wallet
 
 ```ts
-import { checkMessageRequest, decodeEntry } from "c-sign";
+import { checkMessageRequest } from "c-sign";
 
 const { account, verifierId, message, expirationLedger } = await checkMessageRequest({
-  entry: decodeEntry(entryFromApp),
+  entry: entryFromApp,             // base64 XDR, or an entry object from any stellar-sdk version
   origin,                          // as the platform reports it, never as the application states it
   rpcUrl: myRpcUrl,                // an RPC you choose, not one the application supplies
   networkPassphrase,
@@ -102,7 +104,22 @@ const { account, verifierId, message, expirationLedger } = await checkMessageReq
 
 It throws a `CSignError` when the wallet must refuse, including when it cannot confirm the verifier. `signOzMessageWithEd25519` signs for an OpenZeppelin account with Ed25519 signers; its `scheme` argument is the account's digest format, `"preimage-v1"` for stellar-accounts 0.8.0 and later or `"legacy-concat"` for 0.7.x. `signOzEntryWithEd25519` signs other authorization entries and refuses message entries.
 
-For a passkey-kit wallet (tested with 0.14.0 and 0.20.0), `signMessageWithPasskeyKit(kit, entry, signer?)` signs through a connected kit instance, and `signPasskeyKitMessageWithEd25519(entry, keys, networkPassphrase)` signs without one. Both refuse anything but a message entry. A key whose limits exclude the verifier gets `invalid`; leave recovery keys that way, because adding the verifier to a key's limits makes it valid for every domain.
+For a passkey-kit wallet (tested with 0.14.0 and 0.20.0), `signMessageWithPasskeyKit` signs through a connected kit instance, and `signPasskeyKitMessageWithEd25519(entry, keys, networkPassphrase)` signs without one. Both refuse anything but a message entry. A key whose limits exclude the verifier gets `invalid`; leave recovery keys that way, because adding the verifier to a key's limits makes it valid for every domain.
+
+passkey-kit uses stellar-sdk 16, so give it entries of that SDK with `decode`:
+
+```ts
+import { xdr } from "@stellar/stellar-sdk"; // the 16.x your kit uses
+import { signMessageWithPasskeyKit, encodeEntry } from "c-sign";
+
+const signed = await signMessageWithPasskeyKit(kit, entry, {
+  signer,                                                        // optional; the connected passkey by default
+  decode: (b64) => xdr.SorobanAuthorizationEntry.fromXDR(b64, "base64"),
+});
+const signature = encodeEntry(signed);
+```
+
+Signing functions take a `Keypair` from any stellar-sdk version. Byte results (`entrySignaturePayload`, `ozAuthDigest`) are `Uint8Array`.
 
 ## More
 

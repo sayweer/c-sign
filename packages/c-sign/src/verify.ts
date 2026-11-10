@@ -1,5 +1,5 @@
-import { Buffer } from "buffer";
 import { Account, Address, Keypair, Operation, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
+import { bytesEqual, fromBase64, toHex } from "./bytes.js";
 import { AUTH_OK, REFERENCE_WASM_HASH, VERIFY_FUNCTION } from "./constants.js";
 import { CSignError } from "./errors.js";
 import { buildVerifyInvocation } from "./entry.js";
@@ -138,38 +138,40 @@ async function run(
   // 1. Decode
   const encoded = opts.signature.trim();
   if (encoded.length > MAX_ENTRY_BASE64_CHARS) return fail("decode", `Signature is longer than ${MAX_ENTRY_BASE64_CHARS} characters`);
-  const decoded = Buffer.from(encoded, "base64");
+  const decoded = fromBase64(encoded);
+  if (!decoded) return fail("decode", "Not a base64 XDR SorobanAuthorizationEntry");
   if (decoded.length > MAX_ENTRY_XDR_BYTES) return fail("decode", `Entry is larger than ${MAX_ENTRY_XDR_BYTES} bytes`);
   let entry: xdr.SorobanAuthorizationEntry;
   try {
-    entry = xdr.SorobanAuthorizationEntry.fromXDR(decoded);
+    entry = xdr.SorobanAuthorizationEntry.fromXdr(decoded);
   } catch {
     return fail("decode", "Not a base64 XDR SorobanAuthorizationEntry");
   }
-  pass("decode", `${entry.toXDR().length} bytes`);
+  pass("decode", `${decoded.length} bytes`);
 
   // 2. Shape
-  const root = entry.rootInvocation();
-  if (root.function().switch().name !== "sorobanAuthorizedFunctionTypeContractFn") {
+  const root = entry.rootInvocation;
+  const fn = root.function;
+  if (fn.type !== "sorobanAuthorizedFunctionTypeContractFn") {
     return fail("shape", "Root invocation is not a contract call");
   }
-  const call = root.function().contractFn();
-  const verifierId = Address.fromScAddress(call.contractAddress()).toString();
-  if (call.functionName().toString() !== VERIFY_FUNCTION) {
-    return fail("shape", `Calls ${call.functionName().toString()}, not ${VERIFY_FUNCTION}`);
+  const call = fn.contractFn;
+  const verifierId = Address.fromScAddress(call.contractAddress).toString();
+  if (call.functionName.toString() !== VERIFY_FUNCTION) {
+    return fail("shape", `Calls ${call.functionName.toString()}, not ${VERIFY_FUNCTION}`);
   }
-  if (root.subInvocations().length > 0) return fail("shape", "Entry authorizes sub-invocations");
-  const args = call.args();
-  if (args.length !== 2 || args[0].switch().name !== "scvAddress") return fail("shape", "Arguments are not (account, msg)");
-  const account = Address.fromScVal(args[0]).toString();
+  if (root.subInvocations.length > 0) return fail("shape", "Entry authorizes sub-invocations");
+  const args = call.args;
+  if (args.length !== 2 || args[0]!.type !== "scvAddress") return fail("shape", "Arguments are not (account, msg)");
+  const account = Address.fromScVal(args[0]!).toString();
   pass("shape", `${VERIFY_FUNCTION} on ${verifierId}`);
 
   // 3. Credentials
-  if (entry.credentials().switch().name !== "sorobanCredentialsAddressV2") {
-    return fail("credentials", `Credentials are ${entry.credentials().switch().name}, V2 required`, { account, verifierId });
+  if (entry.credentials.type !== "sorobanCredentialsAddressV2") {
+    return fail("credentials", `Credentials are ${entry.credentials.type}, V2 required`, { account, verifierId });
   }
-  const creds = entry.credentials().addressV2();
-  const signer = Address.fromScAddress(creds.address()).toString();
+  const creds = entry.credentials.addressV2;
+  const signer = Address.fromScAddress(creds.address).toString();
   if (signer !== account) return fail("credentials", "Credential address differs from the account argument", { account, verifierId });
   if (opts.address && opts.address !== account) {
     return fail("credentials", `Signed by ${account}, expected ${opts.address}`, { account, verifierId });
@@ -180,13 +182,13 @@ async function run(
   // 4. Message decode, then rebuild the invocation from its parts
   let message: SignedMessage;
   try {
-    message = messageFromScVal(args[1]);
+    message = messageFromScVal(args[1]!);
   } catch (e) {
     steps.push({ id: "rebuild", label: LABELS.rebuild, status: "skip", detail: "Message could not be decoded" });
     return fail("message", e instanceof CSignError ? e.message : "Message could not be decoded", { account, verifierId });
   }
-  const rebuilt = buildVerifyInvocation(verifierId, account, message).toXDR();
-  if (!rebuilt.equals(root.toXDR())) return fail("rebuild", "Signed call differs from the rebuilt call", { account, verifierId });
+  const rebuilt = buildVerifyInvocation(verifierId, account, message).toXdr();
+  if (!bytesEqual(rebuilt, root.toXdr())) return fail("rebuild", "Signed call differs from the rebuilt call", { account, verifierId });
   pass("rebuild", "Byte-identical");
   pass("message", `version ${message.version}, ${Object.keys(message).length} fields`);
   const ctx = { account, verifierId, message };
@@ -242,7 +244,7 @@ async function run(
   pass("network", `Ledger ${latestLedger} on ${opts.networkPassphrase}`);
 
   // 7. Expiration
-  const expiration = creds.signatureExpirationLedger();
+  const expiration = creds.signatureExpirationLedger;
   if (expiration < latestLedger) {
     return fail("expiration", `Expired at ledger ${expiration} (now ${latestLedger})`, ctx);
   }
@@ -265,9 +267,8 @@ async function run(
         if (instance.liveUntilLedgerSeq !== undefined && instance.liveUntilLedgerSeq < latestLedger) {
           return inconclusive("pin", "Verifier instance is archived", ctx);
         }
-        const executable = instance.val.contractData().val().instance().executable();
-        if (executable.switch().name !== "contractExecutableWasm") return fail("pin", "Verifier is not a Wasm contract", ctx);
-        wasmHash = Buffer.from(executable.wasmHash()).toString("hex");
+        wasmHash = instanceWasmHash(instance);
+        if (wasmHash === undefined) return fail("pin", "Verifier is not a Wasm contract", ctx);
       } catch (e) {
         return inconclusive("pin", `Verifier instance not readable: ${errorText(e)}`, ctx);
       }
@@ -322,25 +323,31 @@ export async function readVerifierInstance(server: rpc.Server, verifierId: strin
     new xdr.LedgerKeyContractData({
       contract: Address.fromString(verifierId).toScAddress(),
       key: xdr.ScVal.scvLedgerKeyContractInstance(),
-      durability: xdr.ContractDataDurability.persistent(),
+      durability: xdr.ContractDataDurability.persistent,
     }),
   );
   return (await server.getLedgerEntries(key)).entries[0];
+}
+
+/** Hex Wasm hash of a contract instance entry, or `undefined` if it does not run Wasm. */
+export function instanceWasmHash(instance: rpc.Api.LedgerEntryResult): string | undefined {
+  const data = instance.val;
+  if (data.type !== "contractData" || data.contractData.val.type !== "scvContractInstance") return undefined;
+  const executable = data.contractData.val.instance.executable;
+  return executable.type === "contractExecutableWasm" ? toHex(executable.wasmHash.toBytes()) : undefined;
 }
 
 /** True if a diagnostic error event from `verifierId` carries contract error AUTH_OK. */
 function hasVerifierAuthOk(events: xdr.DiagnosticEvent[], verifierId: string): boolean {
   const target = Address.fromString(verifierId).toBuffer();
   return events.some((d) => {
-    const event = d.event();
-    const id = event.contractId();
-    if (!id || !Buffer.from(id as unknown as Uint8Array).equals(target)) return false;
-    const topics = event.body().v0().topics();
-    if (topics.length < 2) return false;
-    if (topics[0].switch().name !== "scvSymbol" || topics[0].sym().toString() !== "error") return false;
-    if (topics[1].switch().name !== "scvError") return false;
-    const err = topics[1].error();
-    return err.switch().name === "sceContract" && err.contractCode() === AUTH_OK;
+    const event = d.event;
+    if (!event.contractId || !bytesEqual(event.contractId.toBytes(), target)) return false;
+    const topics = event.body.v0.topics;
+    const [name, code] = topics;
+    if (!name || name.type !== "scvSymbol" || name.sym.toString() !== "error") return false;
+    if (!code || code.type !== "scvError") return false;
+    return code.error.type === "sceContract" && code.error.contractCode === AUTH_OK;
   });
 }
 

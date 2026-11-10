@@ -1,10 +1,10 @@
-import { Buffer } from "buffer";
-import { Address, rpc, xdr } from "@stellar/stellar-sdk";
+import { Address, rpc } from "@stellar/stellar-sdk";
+import { bytesEqual } from "./bytes.js";
 import { REFERENCE_WASM_HASH, VERIFY_FUNCTION } from "./constants.js";
-import { buildVerifyInvocation } from "./entry.js";
+import { buildVerifyInvocation, toEntry, type EntryInput } from "./entry.js";
 import { CSignError } from "./errors.js";
 import { isDomainForm, messageFromScVal, type SignedMessage } from "./message.js";
-import { readVerifierInstance } from "./verify.js";
+import { instanceWasmHash, readVerifierInstance } from "./verify.js";
 
 /**
  * The `domain` a wallet writes for an origin the platform reports (SPEC §5 item 1).
@@ -24,9 +24,9 @@ export function domainFromOrigin(origin: string, opts: { developerMode?: boolean
 }
 
 /** True if the entry's root invocation calls a function named `verify_message` (SPEC §5 item 5). */
-export function isMessageEntry(entry: xdr.SorobanAuthorizationEntry): boolean {
-  const fn = entry.rootInvocation().function();
-  return fn.switch().name === "sorobanAuthorizedFunctionTypeContractFn" && fn.contractFn().functionName().toString() === VERIFY_FUNCTION;
+export function isMessageEntry(entry: EntryInput): boolean {
+  const fn = toEntry(entry).rootInvocation.function;
+  return fn.type === "sorobanAuthorizedFunctionTypeContractFn" && fn.contractFn.functionName.toString() === VERIFY_FUNCTION;
 }
 
 export interface ParsedMessageEntry {
@@ -41,26 +41,32 @@ export interface ParsedMessageEntry {
  * {@link CSignError} unless it is exactly one C-Sign message call (SPEC §5 item 3).
  * Display what this returns, not the application's copy of the message (§5 item 2).
  */
-export function parseMessageEntry(entry: xdr.SorobanAuthorizationEntry): ParsedMessageEntry {
-  if (!isMessageEntry(entry)) throw new CSignError(`Entry does not call ${VERIFY_FUNCTION}`);
-  const root = entry.rootInvocation();
-  if (root.subInvocations().length > 0) throw new CSignError("Entry authorizes sub-invocations");
-  const call = root.function().contractFn();
-  const args = call.args();
-  if (args.length !== 2 || args[0].switch().name !== "scvAddress") throw new CSignError("Arguments are not (account, msg)");
-  const account = Address.fromScVal(args[0]).toString();
+export function parseMessageEntry(input: EntryInput): ParsedMessageEntry {
+  const entry = toEntry(input);
+  const root = entry.rootInvocation;
+  const fn = root.function;
+  if (fn.type !== "sorobanAuthorizedFunctionTypeContractFn" || fn.contractFn.functionName.toString() !== VERIFY_FUNCTION) {
+    throw new CSignError(`Entry does not call ${VERIFY_FUNCTION}`);
+  }
+  if (root.subInvocations.length > 0) throw new CSignError("Entry authorizes sub-invocations");
+  const call = fn.contractFn;
+  const args = call.args;
+  if (args.length !== 2 || args[0]!.type !== "scvAddress") throw new CSignError("Arguments are not (account, msg)");
+  const account = Address.fromScVal(args[0]!).toString();
   if (!account.startsWith("C")) throw new CSignError("Signer is not a contract account");
-  if (entry.credentials().switch().name !== "sorobanCredentialsAddressV2") throw new CSignError("Credentials are not V2");
-  const creds = entry.credentials().addressV2();
-  if (Address.fromScAddress(creds.address()).toString() !== account) throw new CSignError("Credential address differs from the account argument");
-  const verifierId = Address.fromScAddress(call.contractAddress()).toString();
-  const message = messageFromScVal(args[1]);
-  if (!buildVerifyInvocation(verifierId, account, message).toXDR().equals(root.toXDR())) throw new CSignError("Signed call differs from the rebuilt call");
-  return { account, verifierId, message, expirationLedger: creds.signatureExpirationLedger() };
+  if (entry.credentials.type !== "sorobanCredentialsAddressV2") throw new CSignError("Credentials are not V2");
+  const creds = entry.credentials.addressV2;
+  if (Address.fromScAddress(creds.address).toString() !== account) throw new CSignError("Credential address differs from the account argument");
+  const verifierId = Address.fromScAddress(call.contractAddress).toString();
+  const message = messageFromScVal(args[1]!);
+  if (!bytesEqual(buildVerifyInvocation(verifierId, account, message).toXdr(), root.toXdr())) {
+    throw new CSignError("Signed call differs from the rebuilt call");
+  }
+  return { account, verifierId, message, expirationLedger: creds.signatureExpirationLedger };
 }
 
 export interface CheckMessageRequestOptions {
-  entry: xdr.SorobanAuthorizationEntry;
+  entry: EntryInput;
   /** Origin of the requesting application, as the platform reports it, never as the application states it. */
   origin: string;
   developerMode?: boolean;
@@ -96,9 +102,8 @@ export async function checkMessageRequest(opts: CheckMessageRequestOptions): Pro
   }
   if (!instance) throw new CSignError("No contract at the verifier address");
   if (instance.liveUntilLedgerSeq !== undefined && instance.liveUntilLedgerSeq < latestLedger) throw new CSignError("Verifier instance is archived");
-  const executable = instance.val.contractData().val().instance().executable();
-  if (executable.switch().name !== "contractExecutableWasm") throw new CSignError("Verifier is not a Wasm contract");
-  const wasmHash = Buffer.from(executable.wasmHash()).toString("hex");
+  const wasmHash = instanceWasmHash(instance);
+  if (wasmHash === undefined) throw new CSignError("Verifier is not a Wasm contract");
   const allowed = (opts.allowedWasmHashes ?? [REFERENCE_WASM_HASH]).map((h) => h.toLowerCase());
   if (!allowed.includes(wasmHash)) throw new CSignError(`Verifier runs ${wasmHash}, not an accepted hash`);
   return parsed;

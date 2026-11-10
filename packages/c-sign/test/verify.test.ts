@@ -12,6 +12,7 @@ import {
   type NonceStore,
   type SignedMessage,
 } from "../src/index.js";
+import { asV1, contractErrorEvent, instanceData, withCall, withCredentialAddress, withExtraKey, withRoot } from "./helpers.js";
 
 // Structural rules are checked before any network call, so these tests run offline.
 const rpcUrl = "http://127.0.0.1:1"; // unreachable on purpose
@@ -62,28 +63,24 @@ describe("verifyMessage, offline rules", () => {
   });
 
   it("rejects a call to another function", async () => {
-    const e = entry();
-    e.rootInvocation().function().contractFn().functionName("transfer");
+    const e = withCall(entry(), () => ({ functionName: "transfer" }));
     expect((await verify(e)).reason).toMatch(/not verify_message/);
   });
 
   it("rejects sub-invocations", async () => {
-    const e = entry();
-    e.rootInvocation().subInvocations([entry().rootInvocation()]);
+    const e = withRoot(entry(), { subInvocations: [entry().rootInvocation] });
     expect((await verify(e)).reason).toMatch(/sub-invocations/);
   });
 
   it("rejects V1 credentials", async () => {
-    const e = entry();
-    e.credentials(xdr.SorobanCredentials.sorobanCredentialsAddress(e.credentials().addressV2()));
+    const e = asV1(entry());
     const r = await verify(e);
     expect(r.status).toBe("invalid");
     expect(stepStatus(r, "credentials")).toBe("fail");
   });
 
   it("rejects credentials for another account", async () => {
-    const e = entry();
-    e.credentials().addressV2().address(Address.fromString(StrKey.encodeContract(Buffer.alloc(32, 9))).toScAddress());
+    const e = withCredentialAddress(entry(), StrKey.encodeContract(Buffer.alloc(32, 9)));
     expect((await verify(e)).reason).toMatch(/differs from the account/);
   });
 
@@ -99,10 +96,8 @@ describe("verifyMessage, offline rules", () => {
   });
 
   it("rejects a message with unknown keys", async () => {
-    const e = entry();
-    const msg = messageToScVal(message);
-    msg.map()!.push(new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("zzz"), val: xdr.ScVal.scvVoid() }));
-    e.rootInvocation().function().contractFn().args([Address.fromString(account).toScVal(), msg]);
+    const msg = withExtraKey(messageToScVal(message), "zzz");
+    const e = withCall(entry(), () => ({ args: [Address.fromString(account).toScVal(), msg] }));
     const r = await verify(e);
     expect(stepStatus(r, "message")).toBe("fail");
   });
@@ -169,30 +164,9 @@ describe("verifySignIn, nonce consumption", () => {
     const proto = rpc.Server.prototype;
     vi.spyOn(proto, "getNetwork").mockResolvedValue({ passphrase: networkPassphrase, protocolVersion: "25" } as never);
     vi.spyOn(proto, "getLatestLedger").mockResolvedValue({ id: "", sequence: 900, protocolVersion: "25", closeTime: String(now) } as never);
-    const executable = xdr.ContractExecutable.contractExecutableWasm(Buffer.from(REFERENCE_WASM_HASH, "hex"));
-    const val = xdr.ScVal.scvContractInstance(new xdr.ScContractInstance({ executable, storage: null }));
-    const data = xdr.LedgerEntryData.contractData(
-      new xdr.ContractDataEntry({
-        ext: new xdr.ExtensionPoint(0),
-        contract: Address.fromString(verifierId).toScAddress(),
-        key: xdr.ScVal.scvLedgerKeyContractInstance(),
-        durability: xdr.ContractDataDurability.persistent(),
-        val,
-      }),
-    );
+    const data = instanceData(verifierId, REFERENCE_WASM_HASH);
     vi.spyOn(proto, "getLedgerEntries").mockResolvedValue({ latestLedger: 900, entries: [{ key: {}, val: data, liveUntilLedgerSeq: 100_000 }] } as never);
-    const event = new xdr.DiagnosticEvent({
-      inSuccessfulContractCall: false,
-      event: new xdr.ContractEvent({
-        ext: new xdr.ExtensionPoint(0),
-        contractId: Address.fromString(verifierId).toScAddress().contractId(),
-        type: xdr.ContractEventType.diagnostic(),
-        body: new xdr.ContractEventBody(0, new xdr.ContractEventV0({
-          topics: [xdr.ScVal.scvSymbol("error"), xdr.ScVal.scvError(xdr.ScError.sceContract(1))],
-          data: xdr.ScVal.scvVoid(),
-        })),
-      }),
-    });
+    const event = contractErrorEvent(verifierId, 1);
     vi.spyOn(proto, "simulateTransaction").mockResolvedValue({ id: "1", latestLedger: 900, events: [event], _parsed: true, error: "HostError: Error(Contract, #1)" } as never);
   };
   const run = (verifierId: string, nonces: NonceStore) =>

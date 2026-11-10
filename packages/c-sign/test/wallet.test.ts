@@ -13,6 +13,8 @@ import {
   signOzMessageWithEd25519,
   type SignedMessage,
 } from "../src/index.js";
+import { fromHex } from "../src/bytes.js";
+import { asV1, withCall, withCredentialAddress, withRoot } from "./helpers.js";
 
 const networkPassphrase = Networks.TESTNET;
 const verifierId = StrKey.encodeContract(Buffer.alloc(32, 3));
@@ -41,20 +43,15 @@ describe("parseMessageEntry", () => {
   });
 
   it("refuses other functions, sub-invocations, V1 credentials, other accounts and bad messages", () => {
-    const cases: ((e: xdr.SorobanAuthorizationEntry) => void)[] = [
-      (e) => e.rootInvocation().function().contractFn().functionName("transfer"),
-      (e) => e.rootInvocation().subInvocations([entry().rootInvocation()]),
-      (e) => e.credentials(xdr.SorobanCredentials.sorobanCredentialsAddress(e.credentials().addressV2())),
-      (e) => e.credentials().addressV2().address(Address.fromString(verifierId).toScAddress()),
-      (e) => {
-        const call = e.rootInvocation().function().contractFn();
-        call.args([call.args()[0], messageToScVal({ ...message, statement: "a\nb" }, false)]);
-      },
+    const cases: ((e: xdr.SorobanAuthorizationEntry) => xdr.SorobanAuthorizationEntry)[] = [
+      (e) => withCall(e, () => ({ functionName: "transfer" })),
+      (e) => withRoot(e, { subInvocations: [entry().rootInvocation] }),
+      asV1,
+      (e) => withCredentialAddress(e, verifierId),
+      (e) => withCall(e, (call) => ({ args: [call.args[0]!, messageToScVal({ ...message, statement: "a\nb" }, false)] })),
     ];
     for (const mutate of cases) {
-      const e = entry();
-      mutate(e);
-      expect(() => parseMessageEntry(e)).toThrow(CSignError);
+      expect(() => parseMessageEntry(mutate(entry()))).toThrow(CSignError);
     }
   });
 });
@@ -67,8 +64,7 @@ describe("OpenZeppelin signing", () => {
 
   it("message signing checks the entry first", () => {
     expect(() => signOzMessageWithEd25519(entry(), [key], networkPassphrase, "preimage-v1")).not.toThrow();
-    const bad = entry();
-    bad.rootInvocation().subInvocations([entry().rootInvocation()]);
+    const bad = withRoot(entry(), { subInvocations: [entry().rootInvocation] });
     expect(() => signOzMessageWithEd25519(bad, [key], networkPassphrase, "preimage-v1")).toThrow(/sub-invocations/);
   });
 });
@@ -80,13 +76,13 @@ describe("checkMessageRequest", () => {
     const proto = rpc.Server.prototype;
     vi.spyOn(proto, "getNetwork").mockResolvedValue({ passphrase: over.passphrase ?? networkPassphrase, protocolVersion: "25" } as never);
     vi.spyOn(proto, "getLatestLedger").mockResolvedValue({ id: "", sequence: 900, protocolVersion: "25", closeTime: "0" } as never);
-    const executable = over.executable ?? xdr.ContractExecutable.contractExecutableWasm(Buffer.from(over.wasm ?? REFERENCE_WASM_HASH, "hex"));
+    const executable = over.executable ?? xdr.ContractExecutable.contractExecutableWasm(fromHex(over.wasm ?? REFERENCE_WASM_HASH));
     const data = xdr.LedgerEntryData.contractData(
       new xdr.ContractDataEntry({
-        ext: new xdr.ExtensionPoint(0),
+        ext: xdr.ExtensionPoint.v0(),
         contract: Address.fromString(verifierId).toScAddress(),
         key: xdr.ScVal.scvLedgerKeyContractInstance(),
-        durability: xdr.ContractDataDurability.persistent(),
+        durability: xdr.ContractDataDurability.persistent,
         val: xdr.ScVal.scvContractInstance(new xdr.ScContractInstance({ executable, storage: null })),
       }),
     );

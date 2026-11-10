@@ -49,6 +49,8 @@ import {
   submitVerifyCall,
   thresholdPolicies,
 } from "./testnet.js";
+import { bytesEqual, toHex } from "../src/bytes.js";
+import { contractCall, withCall } from "../test/helpers.js";
 
 const DOMAIN = "demo.c-sign.dev";
 const [VERIFIER_A, VERIFIER_B] = deployments.instances;
@@ -81,7 +83,7 @@ async function sign(
   account: string,
   keys: OzEd25519Key[],
   msg: SignedMessage,
-  opts: { verifierId?: string; nonce?: xdr.Int64; expirationLedger?: number; scheme?: OzDigestScheme } = {},
+  opts: { verifierId?: string; nonce?: bigint; expirationLedger?: number; scheme?: OzDigestScheme } = {},
 ): Promise<xdr.SorobanAuthorizationEntry> {
   const latest = (await server.getLatestLedger()).sequence;
   const entry = buildMessageEntry({
@@ -119,16 +121,16 @@ async function maxStatementBytes(
   const base = message("x");
   const attempt = async (n: number) => {
     const raw = messageToScVal({ ...base, statement: "a".repeat(n) }, false);
-    const entry = buildMessageEntry({ verifierId: VERIFIER_A, account, message: base, expirationLedger: latest + 720 });
-    const call = entry.rootInvocation().function().contractFn();
-    call.args([call.args()[0], raw]);
+    const entry = withCall(buildMessageEntry({ verifierId: VERIFIER_A, account, message: base, expirationLedger: latest + 720 }), (call) => ({
+      args: [call.args[0]!, raw],
+    }));
     const signed = unsafeSignOzEntry(entry, keys, networkPassphrase, "legacy-concat");
     const tx = new TransactionBuilder(new Account(Keypair.random().publicKey(), "0"), { fee: "100", networkPassphrase })
-      .addOperation(Operation.invokeHostFunction({ func: xdr.HostFunction.hostFunctionTypeInvokeContract(call), auth: [signed] }))
+      .addOperation(Operation.invokeHostFunction({ func: xdr.HostFunction.hostFunctionTypeInvokeContract(contractCall(entry)), auth: [signed] }))
       .setTimeout(60)
       .build();
     // Raw JSON-RPC, so a transport refusal (such as a request-size cap) is reported verbatim.
-    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "simulateTransaction", params: { transaction: tx.toXDR(), authMode: "enforce" } });
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "simulateTransaction", params: { transaction: tx.toXdr(), authMode: "enforce" } });
     const text = await (await fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body })).text();
     let error: string;
     try {
@@ -137,7 +139,7 @@ async function maxStatementBytes(
     } catch {
       error = `RPC: ${text.trim().slice(0, 80)}`;
     }
-    return { ok: error.startsWith("HostError: Error(Contract, #1)"), error, msgBytes: raw.toXDR().length, requestBytes: body.length };
+    return { ok: error.startsWith("HostError: Error(Contract, #1)"), error, msgBytes: raw.toXdr().length, requestBytes: body.length };
   };
   let lo = 0;
   let hi = 1024 * 1024;
@@ -213,7 +215,7 @@ async function main() {
   const e2Msg = message("Nonce experiment");
   const real = await sign(account.id, [k1], e2Msg, { nonce: shared });
   const twin = await sign(account.id, [k1], e2Msg, { nonce: shared, verifierId: NONREV });
-  const twinCall = twin.rootInvocation().function().contractFn();
+  const twinCall = contractCall(twin);
   const twinTx = new TransactionBuilder(new Account(sponsor.publicKey(), "0"), { fee: "100", networkPassphrase })
     .addOperation(Operation.invokeHostFunction({ func: xdr.HostFunction.hostFunctionTypeInvokeContract(twinCall), auth: [twin] }))
     .setTimeout(60)
@@ -221,25 +223,25 @@ async function main() {
   const twinSim = await server.simulateTransaction(twinTx, undefined, "enforce");
   if (!rpc.Api.isSimulationSuccess(twinSim)) throw new Error(`Twin simulation failed: ${(twinSim as { error?: string }).error}`);
   const data = twinSim.transactionData.build();
-  const fp = data.resources().footprint();
-  const nonrevInstance = contractInstanceKey(NONREV).toXDR("base64");
-  const nonrevCode = contractCodeKey(deployments.nonRevertingVerifier.wasmHash).toXDR("base64");
-  const readOnly = fp.readOnly().map((k) => {
-    const key = k.toXDR("base64");
+  const fp = data.resources.footprint;
+  const nonrevInstance = contractInstanceKey(NONREV).toXdr("base64");
+  const nonrevCode = contractCodeKey(deployments.nonRevertingVerifier.wasmHash).toXdr("base64");
+  const readOnly = fp.readOnly.map((k) => {
+    const key = k.toXdr("base64");
     if (key === nonrevInstance) return contractInstanceKey(VERIFIER_A);
     if (key === nonrevCode) return contractCodeKey(deployments.wasmHash);
     return k;
   });
-  const resources = data.resources();
+  const resources = data.resources;
   const patched = new SorobanDataBuilder(data)
     .setReadOnly(readOnly)
-    .setReadWrite(fp.readWrite())
+    .setReadWrite(fp.readWrite)
     .setResources(
-      Math.ceil(resources.instructions() * 1.5),
-      Math.ceil(resources.diskReadBytes() * 1.5) + 4096,
-      resources.writeBytes() + 1024,
+      Math.ceil(resources.instructions * 1.5),
+      Math.ceil(resources.diskReadBytes * 1.5) + 4096,
+      resources.writeBytes + 1024,
     )
-    .setResourceFee(BigInt(data.resourceFee().toString()) * 2n + 100000n)
+    .setResourceFee(data.resourceFee * 2n + 100000n)
     .build();
 
   const before = await nonceConsumed(account.id, shared);
@@ -266,7 +268,7 @@ async function main() {
   const burnNonce = randomEntryNonce();
   const burnMsg = message("Nonce experiment, non-reverting verifier");
   const burn = await sign(account.id, [k1], burnMsg, { nonce: burnNonce, verifierId: NONREV });
-  const burnCall = burn.rootInvocation().function().contractFn();
+  const burnCall = contractCall(burn);
   const burnTx = new TransactionBuilder(await server.getAccount(sponsor.publicKey()), { fee: "1000000", networkPassphrase })
     .addOperation(Operation.invokeHostFunction({ func: xdr.HostFunction.hostFunctionTypeInvokeContract(burnCall), auth: [burn] }))
     .setTimeout(60)
@@ -294,10 +296,7 @@ async function main() {
   });
 
   // ---- Negative cases ------------------------------------------------------
-  const tampered = xdr.SorobanAuthorizationEntry.fromXDR(s1.toXDR());
-  const args = tampered.rootInvocation().function().contractFn().args();
-  args[1] = messageToScVal({ ...signIn, statement: "Transfer everything" });
-  tampered.rootInvocation().function().contractFn().args(args);
+  const tampered = withCall(s1, (call) => ({ args: [call.args[0]!, messageToScVal({ ...signIn, statement: "Transfer everything" })] }));
   r = await verify(tampered);
   record({ id: "N1", experiment: "Tampered statement", expected: "invalid at check_auth", observed: describe(r), pass: r.status === "invalid" });
 
@@ -443,14 +442,14 @@ async function main() {
     pass: r.status === "invalid" && r.steps.find((s) => s.id === "check_auth")?.status === "fail",
   });
   const preimage = ozAuthDigestPreimage(v08.id, entrySignaturePayload(o1, networkPassphrase), DEFAULT_CONTEXT_RULE_IDS);
-  const onchainDigest = Buffer.from((await readContract(v08.id, "auth_digest", [preimage])).bytes());
+  const onchainDigest = Buffer.from(xdr.expectUnionVariant(await readContract(v08.id, "auth_digest", [preimage]), "scvBytes").bytes.toBytes());
   const localDigest = ozAuthDigest(o1, networkPassphrase, "preimage-v1");
   record({
     id: "O3",
     experiment: "The account's `auth_digest` for the O1 entry, against the library's `preimage-v1` digest",
     expected: "equal",
-    observed: `auth_digest \`${onchainDigest.toString("hex").slice(0, 16)}…\`, library \`${localDigest.toString("hex").slice(0, 16)}…\`: ${onchainDigest.equals(localDigest) ? "equal" : "different"}`,
-    pass: onchainDigest.equals(localDigest),
+    observed: `auth_digest \`${toHex(onchainDigest).slice(0, 16)}…\`, library \`${toHex(localDigest).slice(0, 16)}…\`: ${bytesEqual(onchainDigest, localDigest) ? "equal" : "different"}`,
+    pass: bytesEqual(onchainDigest, localDigest),
   });
 
   // ---- Size limits: the largest statement each account type authorizes ---------

@@ -9,7 +9,8 @@ import {
   encodeEntry,
   signMessageWithPasskeyKit,
   signPasskeyKitMessageWithEd25519,
-} from "../src/index.js";
+  type EntryInput,
+} from "c-sign";
 
 const ACCOUNT = "CA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAXE";
 const VERIFIER = "CAAVTMCBXEIBPR64EAASKFXERVPYFZA2JYP5A3BG6PESWEFUJX5IHKN4";
@@ -37,8 +38,12 @@ const kits = [
 ] as const;
 
 describe.each(kits)("passkey-kit %s", (_version, kit, makeSigner) => {
-  const sign = (e: xdr.SorobanAuthorizationEntry, k: Keypair) =>
-    signMessageWithPasskeyKit(kit as never, e, makeSigner(k) as never);
+  // This application and its kits use stellar-sdk 16, c-sign uses 17: `decode` hands the kit a 16 entry.
+  const sign = (e: EntryInput, k: Keypair) =>
+    signMessageWithPasskeyKit(kit as never, e, {
+      signer: makeSigner(k) as never,
+      decode: (b64) => xdr.SorobanAuthorizationEntry.fromXDR(b64, "base64"),
+    });
 
   it("our Ed25519 encoding equals what the kit writes", async () => {
     const key = Keypair.random();
@@ -55,24 +60,32 @@ describe.each(kits)("passkey-kit %s", (_version, kit, makeSigner) => {
     expect(encodeEntry(signPasskeyKitMessageWithEd25519(e, keys, Networks.TESTNET))).toBe(encodeEntry(viaKit));
   });
 
+  it("signs an entry of this application's SDK and returns one c-sign verifies", async () => {
+    const e16 = xdr.SorobanAuthorizationEntry.fromXDR(encodeEntry(entry()), "base64");
+    const signed = await sign(e16, Keypair.random());
+    expect(addressCredentials(signed).signatureExpirationLedger).toBe(1000);
+  });
+
   it("does not touch the entry it is given, and keeps its expiration", async () => {
     const e = entry();
     const before = encodeEntry(e);
     const signed = await sign(e, Keypair.random());
     expect(encodeEntry(e)).toBe(before);
-    expect(addressCredentials(signed).signatureExpirationLedger()).toBe(1000);
+    expect(addressCredentials(signed).signatureExpirationLedger).toBe(1000);
   });
 });
 
 describe("message guard", () => {
+  // Entries of this application's SDK (16), which c-sign accepts as they are.
+  const entry16 = () => xdr.SorobanAuthorizationEntry.fromXDR(encodeEntry(entry()), "base64");
   const notAMessage = () => {
-    const e = entry();
+    const e = entry16();
     e.rootInvocation().function().contractFn().functionName("transfer");
     return e;
   };
   const withSubInvocation = () => {
-    const e = entry();
-    e.rootInvocation().subInvocations([e.rootInvocation()]);
+    const e = entry16();
+    e.rootInvocation().subInvocations([entry16().rootInvocation()]);
     return e;
   };
 
@@ -82,7 +95,7 @@ describe("message guard", () => {
   ])("refuses an entry with %s before reaching the kit", async (_name, make) => {
     let called = false;
     const kit = { signAuthEntry: async (e: xdr.SorobanAuthorizationEntry) => ((called = true), e) };
-    await expect(signMessageWithPasskeyKit(kit, make())).rejects.toThrow(CSignError);
+    await expect(signMessageWithPasskeyKit(kit, make(), { decode: (b64) => xdr.SorobanAuthorizationEntry.fromXDR(b64, "base64") })).rejects.toThrow(CSignError);
     expect(called).toBe(false);
     expect(() => signPasskeyKitMessageWithEd25519(make(), [Keypair.random()], Networks.TESTNET)).toThrow(CSignError);
   });

@@ -39,15 +39,15 @@ async function main() {
     credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
       new xdr.SorobanAddressCredentials({
         address: Address.fromString(deployer.publicKey()).toScAddress(),
-        nonce: xdr.Int64.fromString(String(Date.now())),
+        nonce: BigInt(Date.now()),
         signatureExpirationLedger: 0,
         signature: xdr.ScVal.scvVoid(),
       }),
     ),
-    rootInvocation: authEntry.rootInvocation(),
+    rootInvocation: authEntry!.rootInvocation,
   });
   const signed = await authorizeEntry(addressEntry, deployer, sim.latestLedger + 100, networkPassphrase);
-  const relay = await post("/api/relay", { func: func!.toXDR("base64"), auth: [signed.toXDR("base64")] });
+  const relay = await post("/api/relay", { func: func!.toXdr("base64"), auth: [signed.toXdr("base64")] });
   const relayBody = (await relay.json()) as { success: boolean; data?: { hash: string }; error?: string };
   check("relay deploys an OpenZeppelin account", relay.ok && relayBody.success, relayBody.error ?? relayBody.data?.hash);
   const tx = await server.getTransaction(relayBody.data!.hash);
@@ -59,7 +59,7 @@ async function main() {
   const bad = xdr.HostFunction.hostFunctionTypeInvokeContract(
     new xdr.InvokeContractArgs({ contractAddress: Address.fromString(token).toScAddress(), functionName: "verify_message", args: [] }),
   );
-  const refused = await post("/api/relay", { func: bad.toXDR("base64"), auth: [] });
+  const refused = await post("/api/relay", { func: bad.toXdr("base64"), auth: [] });
   check("relay refuses other calls", refused.status === 403, `${refused.status} ${(await refused.json()).error}`);
 
   // 3. Sign in: challenge -> sign for this host -> verify sets a session cookie.

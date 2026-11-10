@@ -1,0 +1,23 @@
+{
+  "name": "c-sign-kit-compat",
+  "private": true,
+  "description": "c-sign inside an application on stellar-sdk 16 with passkey-kit, as wallets build today",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "tsx e2e/passkey-kit.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "16.4.1",
+    "c-sign": "workspace:*",
+    "passkey-kit": "0.20.0",
+    "passkey-kit-014": "npm:passkey-kit@0.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}

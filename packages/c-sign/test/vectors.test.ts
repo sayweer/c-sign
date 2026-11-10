@@ -13,6 +13,8 @@ import {
   type VerifyResult,
 } from "../src/index.js";
 import { VECTORS_PATH, buildVectors, serializeVectors } from "../scripts/vectors.js";
+import { fromHex, toHex } from "../src/bytes.js";
+import { contractErrorEvent } from "./helpers.js";
 
 const vectors = buildVectors();
 
@@ -28,7 +30,7 @@ describe("test vectors", () => {
 
   it("decodes every valid message back to its fields", () => {
     for (const v of vectors.messages.valid) {
-      expect(() => messageFromScVal(xdr.ScVal.fromXDR(v.msg_xdr, "base64")), v.name).not.toThrow();
+      expect(() => messageFromScVal(xdr.ScVal.fromXdr(v.msg_xdr, "base64")), v.name).not.toThrow();
     }
   });
 
@@ -36,7 +38,7 @@ describe("test vectors", () => {
     for (const v of vectors.messages.invalid) {
       let rejected = false;
       try {
-        messageFromScVal(xdr.ScVal.fromXDR(v.msg_xdr, "base64"));
+        messageFromScVal(xdr.ScVal.fromXdr(v.msg_xdr, "base64"));
       } catch {
         rejected = true;
       }
@@ -47,7 +49,7 @@ describe("test vectors", () => {
   it("signature payload is sha256 of the preimage", () => {
     for (const v of vectors.entries.cases) {
       const payload = entrySignaturePayload(decodeEntry(v.unsigned_entry_xdr), v.input.network_passphrase);
-      expect(payload.toString("hex"), v.name).toBe(v.signature_payload_hex);
+      expect(toHex(payload), v.name).toBe(v.signature_payload_hex);
     }
   });
 
@@ -56,15 +58,15 @@ describe("test vectors", () => {
       const { unsigned_entry_xdr, network_passphrase, context_rule_ids } = v.input;
       const entry = decodeEntry(unsigned_entry_xdr);
       const digest = ozAuthDigest(entry, network_passphrase, v.scheme, context_rule_ids);
-      expect(digest.toString("hex"), v.name).toBe(v.auth_digest_hex);
+      expect(toHex(digest), v.name).toBe(v.auth_digest_hex);
       if (v.auth_digest_preimage_xdr !== undefined) {
         const preimage = ozAuthDigestPreimage(vectors.fixtures.account, entrySignaturePayload(entry, network_passphrase), context_rule_ids);
-        expect(preimage.toXDR("base64"), v.name).toBe(v.auth_digest_preimage_xdr);
-        expect(hash(Buffer.from(v.auth_digest_preimage_xdr, "base64")).toString("hex"), v.name).toBe(v.auth_digest_hex);
+        expect(preimage.toXdr("base64"), v.name).toBe(v.auth_digest_preimage_xdr);
+        expect(toHex(hash(xdr.ScVal.fromXdr(v.auth_digest_preimage_xdr, "base64").toXdr())), v.name).toBe(v.auth_digest_hex);
       }
       for (const s of v.signatures) {
-        const publicKey = StrKey.encodeEd25519PublicKey(Buffer.from(vectors.fixtures.keys[s.key - 1].public_key_hex, "hex"));
-        expect(Keypair.fromPublicKey(publicKey).verify(digest, Buffer.from(s.signature_hex, "hex")), `${v.name} key ${s.key}`).toBe(true);
+        const publicKey = StrKey.encodeEd25519PublicKey(fromHex(vectors.fixtures.keys[s.key - 1].public_key_hex));
+        expect(Keypair.fromPublicKey(publicKey).verify(digest, fromHex(s.signature_hex)), `${v.name} key ${s.key}`).toBe(true);
       }
     }
   });
@@ -141,13 +143,13 @@ function stubRpc(state: (typeof vectors.verification.cases)[number]["rpc"], veri
         ? xdr.ContractExecutable.contractExecutableExternalRef(
             new xdr.ContractExecutableExternalRef({ executableOwner: Address.fromString(vectors.fixtures.other_account).toScAddress(), tag: "verifier" }),
           )
-        : xdr.ContractExecutable.contractExecutableWasm(Buffer.from("wasm_hash" in instance ? instance.wasm_hash : REFERENCE_WASM_HASH, "hex"));
+        : xdr.ContractExecutable.contractExecutableWasm(fromHex("wasm_hash" in instance ? instance.wasm_hash : REFERENCE_WASM_HASH));
     const data = xdr.LedgerEntryData.contractData(
       new xdr.ContractDataEntry({
-        ext: new xdr.ExtensionPoint(0),
+        ext: xdr.ExtensionPoint.v0(),
         contract: Address.fromString(verifier).toScAddress(),
         key: xdr.ScVal.scvLedgerKeyContractInstance(),
-        durability: xdr.ContractDataDurability.persistent(),
+        durability: xdr.ContractDataDurability.persistent,
         val: xdr.ScVal.scvContractInstance(new xdr.ScContractInstance({ executable, storage: null })),
       }),
     );
@@ -155,8 +157,8 @@ function stubRpc(state: (typeof vectors.verification.cases)[number]["rpc"], veri
       latestLedger: state.latest_ledger,
       entries: [
         {
-          key: keys[0].toXDR("base64"),
-          xdr: data.toXDR("base64"),
+          key: keys[0]!.toXdr("base64"),
+          xdr: data.toXdr("base64"),
           lastModifiedLedgerSeq: 1,
           liveUntilLedgerSeq: instance.state === "archived" ? state.latest_ledger - 1 : state.latest_ledger + 100_000,
         },
@@ -166,27 +168,9 @@ function stubRpc(state: (typeof vectors.verification.cases)[number]["rpc"], veri
   vi.spyOn(proto, "simulateTransaction").mockImplementation((async () => {
     const sim = state.simulation;
     if ("succeeded" in sim) return { id: "1", latestLedger: state.latest_ledger, events: [], _parsed: true, transactionData: {}, minResourceFee: "0" };
-    const events = sim.contract_error_events.map(({ contract, code }) => errorEvent(contract === "verifier" ? verifier : vectors.fixtures.account, code));
+    const events = sim.contract_error_events.map(({ contract, code }) => contractErrorEvent(contract === "verifier" ? verifier : vectors.fixtures.account, code));
     return { id: "1", latestLedger: state.latest_ledger, events, _parsed: true, error: sim.error };
   }) as never);
 }
 
 const REFERENCE_WASM_HASH = vectors.reference_wasm_hash;
-
-function errorEvent(contract: string, code: number): xdr.DiagnosticEvent {
-  return new xdr.DiagnosticEvent({
-    inSuccessfulContractCall: false,
-    event: new xdr.ContractEvent({
-      ext: new xdr.ExtensionPoint(0),
-      contractId: Address.fromString(contract).toScAddress().contractId(),
-      type: xdr.ContractEventType.diagnostic(),
-      body: new xdr.ContractEventBody(
-        0,
-        new xdr.ContractEventV0({
-          topics: [xdr.ScVal.scvSymbol("error"), xdr.ScVal.scvError(xdr.ScError.sceContract(code))],
-          data: xdr.ScVal.scvVoid(),
-        }),
-      ),
-    }),
-  });
-}

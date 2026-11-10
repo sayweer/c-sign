@@ -69,7 +69,7 @@ const result = await verifySignIn({
 - A 2-of-3 threshold policy decides as well: after the threshold is raised to three, the same two-key signature stops verifying.
 - A minimal non-OpenZeppelin account, which signs the raw payload, verifies through the same path.
 - An OpenZeppelin stellar-accounts 0.8.0 account verifies with its new auth digest, rejects the old one, and computes the same digest on-chain as the library.
-- passkey-kit 0.14 and 0.20 wallets verify through the same path, with a software P-256 authenticator, and a recovery key limited to the wallet contract is `invalid` ([docs/EXPERIMENTS-PASSKEY-KIT.md](docs/EXPERIMENTS-PASSKEY-KIT.md), `pnpm e2e:passkey-kit`).
+- passkey-kit 0.14 and 0.20 wallets verify through the same path, with a software P-256 authenticator, and a recovery key limited to the wallet contract is `invalid` ([docs/EXPERIMENTS-PASSKEY-KIT.md](docs/EXPERIMENTS-PASSKEY-KIT.md), `pnpm --filter c-sign-kit-compat e2e`).
 - The host accepts statements of about 190 KB, with or without a policy; only the RPC's request-size cap stops verification.
 - Median verification time against a public testnet RPC is under one second.
 

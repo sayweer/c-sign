@@ -9,6 +9,7 @@ import {
   buildMessageEntry,
   encodeEntry,
   signOzMessageWithEd25519,
+  type EntryInput,
   type SignedMessage,
 } from "c-sign";
 import { ED25519_VERIFIER, NETWORK_PASSPHRASE, OZ_ACCOUNT_WASM, RPC_URL, WEBAUTHN_VERIFIER } from "./config";
@@ -116,13 +117,15 @@ export function activeSigners(state: WalletState): ("passkey" | "recovery")[] {
 export async function signMessage(state: WalletState, message: SignedMessage, verifierId: string): Promise<string> {
   const latest = (await server.getLatestLedger()).sequence;
   const expiration = latest + 720; // about an hour
-  let entry = buildMessageEntry({ verifierId, account: state.account, message, expirationLedger: expiration });
+  let entry: EntryInput = buildMessageEntry({ verifierId, account: state.account, message, expirationLedger: expiration });
   const recovery = recoveryKey(state);
   // Must match smart-account-kit's digest: both signatures go into one AuthPayload, and kit 0.8.0 signs legacy-concat.
   if (recovery) entry = signOzMessageWithEd25519(entry, [{ keypair: recovery, verifierId: ED25519_VERIFIER }], NETWORK_PASSPHRASE, "legacy-concat");
   if (!state.passkeyRemoved) {
     await ensureConnected(state);
-    entry = await getKit().signAuthEntry(entry, { contextRuleIds: [0], expiration });
+    // The kit uses stellar-sdk 16 and c-sign 17: hand the kit an entry of its own SDK.
+    const forKit = xdr.SorobanAuthorizationEntry.fromXDR(encodeEntry(entry), "base64");
+    entry = await getKit().signAuthEntry(forKit, { contextRuleIds: [0], expiration });
   }
   return encodeEntry(entry);
 }

@@ -1,5 +1,5 @@
-import { Buffer } from "buffer";
 import { xdr } from "@stellar/stellar-sdk";
+import { compareBytes } from "./bytes.js";
 import { CSignError } from "./errors.js";
 
 export const MESSAGE_VERSION = "1";
@@ -54,10 +54,9 @@ export const isDomainForm = (domain: string) => {
 };
 
 /** Strict UTF-8: a decoder that replaced bad bytes would hide them from the character rule. */
-function decodeUtf8(raw: string | Buffer, key: string): string {
-  if (typeof raw === "string") return raw;
+function decodeUtf8(raw: xdr.XdrString, key: string): string {
   try {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(raw);
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(raw.bytes);
   } catch {
     throw new CSignError(`${key} is not valid UTF-8`);
   }
@@ -85,7 +84,7 @@ export function validateMessage(msg: SignedMessage): void {
     }
   }
   if (!isDomainForm(msg.domain)) throw new CSignError("domain is not a lower-case host with an optional port other than 443");
-  const size = messageToScVal(msg, false).toXDR().length;
+  const size = messageToScVal(msg, false).toXdr().length;
   if (size > MAX_MESSAGE_XDR_BYTES) throw new CSignError(`message exceeds ${MAX_MESSAGE_XDR_BYTES} bytes as XDR`);
 }
 
@@ -99,7 +98,7 @@ export function messageToScVal(msg: SignedMessage, validate = true): xdr.ScVal {
     if (value === undefined) continue;
     let val: xdr.ScVal;
     if (field.type === "string") val = xdr.ScVal.scvString(value as string);
-    else if (field.type === "u64") val = xdr.ScVal.scvU64(xdr.Uint64.fromString(String(value)));
+    else if (field.type === "u64") val = xdr.ScVal.scvU64(BigInt(value as number));
     else val = xdr.ScVal.scvVec((value as string[]).map((s) => xdr.ScVal.scvString(s)));
     entries.push(new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol(key), val }));
   }
@@ -108,33 +107,33 @@ export function messageToScVal(msg: SignedMessage, validate = true): xdr.ScVal {
 
 /** Decodes and validates a message map. Rejects unknown keys, wrong types and unsorted or duplicate keys. */
 export function messageFromScVal(val: xdr.ScVal): SignedMessage {
-  if (val.switch().name !== "scvMap") throw new CSignError("message is not a map");
+  if (val.type !== "scvMap") throw new CSignError("message is not a map");
   const out: Partial<Record<keyof SignedMessage, unknown>> = {};
   let previous: string | undefined;
-  for (const entry of val.map() ?? []) {
-    if (entry.key().switch().name !== "scvSymbol") throw new CSignError("message key is not a symbol");
-    const key = entry.key().sym().toString();
-    if (previous !== undefined && Buffer.compare(Buffer.from(previous), Buffer.from(key)) >= 0) {
+  const utf8 = new TextEncoder();
+  for (const entry of val.map ?? []) {
+    if (entry.key.type !== "scvSymbol") throw new CSignError("message key is not a symbol");
+    const key = entry.key.sym.toString();
+    if (previous !== undefined && compareBytes(utf8.encode(previous), utf8.encode(key)) >= 0) {
       throw new CSignError("message keys are not sorted or not unique");
     }
     previous = key;
     const field = FIELDS[key];
     if (!field) throw new CSignError(`unknown message key "${key}"`);
-    const v = entry.val();
-    const kind = v.switch().name;
+    const v = entry.val;
     if (field.type === "string") {
-      if (kind !== "scvString") throw new CSignError(`${key} must be a String`);
-      out[field.prop] = decodeUtf8(v.str(), key);
+      if (v.type !== "scvString") throw new CSignError(`${key} must be a String`);
+      out[field.prop] = decodeUtf8(v.str, key);
     } else if (field.type === "u64") {
-      if (kind !== "scvU64") throw new CSignError(`${key} must be a U64`);
-      const n = BigInt(v.u64().toString());
+      if (v.type !== "scvU64") throw new CSignError(`${key} must be a U64`);
+      const n = v.u64;
       if (n > BigInt(Number.MAX_SAFE_INTEGER)) throw new CSignError(`${key} is out of range`);
       out[field.prop] = Number(n);
     } else {
-      if (kind !== "scvVec") throw new CSignError(`${key} must be a Vec<String>`);
-      out[field.prop] = (v.vec() ?? []).map((item) => {
-        if (item.switch().name !== "scvString") throw new CSignError(`${key} must be a Vec<String>`);
-        return decodeUtf8(item.str(), key);
+      if (v.type !== "scvVec") throw new CSignError(`${key} must be a Vec<String>`);
+      out[field.prop] = (v.vec ?? []).map((item) => {
+        if (item.type !== "scvString") throw new CSignError(`${key} must be a Vec<String>`);
+        return decodeUtf8(item.str, key);
       });
     }
   }

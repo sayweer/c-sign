@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { xdr } from "@stellar/stellar-sdk";
 import { CSignError, messageFromScVal, messageToScVal, toDisplayText, type SignedMessage } from "../src/index.js";
+import { keyName, mapEntries, withExtraKey } from "./helpers.js";
 
 const base: SignedMessage = {
   version: "1",
@@ -17,7 +18,7 @@ describe("message", () => {
   });
 
   it("encodes keys sorted as the host requires", () => {
-    const keys = (messageToScVal(base).map() ?? []).map((e) => e.key().sym().toString());
+    const keys = mapEntries(messageToScVal(base)).map(keyName);
     expect(keys).toEqual([...keys].sort());
     expect(keys).toEqual(["domain", "issued_at", "nonce", "statement", "version"]);
   });
@@ -40,27 +41,26 @@ describe("message", () => {
   });
 
   it("does not let the decoder hide a leading byte order mark", () => {
-    const val = messageToScVal(base, false);
-    const statement = (val.map() ?? []).find((e) => e.key().sym().toString() === "statement")!;
-    statement.val(xdr.ScVal.scvString(Buffer.from("\ufeffSign in", "utf8")));
-    expect(() => messageFromScVal(xdr.ScVal.fromXDR(val.toXDR()))).toThrow(/forbidden character/);
+    const entries = mapEntries(messageToScVal(base, false)).map((e) =>
+      keyName(e) === "statement" ? new xdr.ScMapEntry({ key: e.key, val: xdr.ScVal.scvString(new TextEncoder().encode("\ufeffSign in")) }) : e,
+    );
+    const val = xdr.ScVal.scvMap(entries);
+    expect(() => messageFromScVal(xdr.ScVal.fromXdr(val.toXdr()))).toThrow(/forbidden character/);
   });
 
   it("rejects unknown keys", () => {
-    const val = messageToScVal(base);
-    val.map()!.push(new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("zzz"), val: xdr.ScVal.scvString("x") }));
+    const val = withExtraKey(messageToScVal(base), "zzz");
     expect(() => messageFromScVal(val)).toThrow(/unknown message key/);
   });
 
   it("rejects unsorted keys", () => {
-    const val = messageToScVal(base);
-    val.map()!.reverse();
+    const val = xdr.ScVal.scvMap([...mapEntries(messageToScVal(base))].reverse());
     expect(() => messageFromScVal(val)).toThrow(/not sorted/);
   });
 
   it("rejects wrong types", () => {
-    const entries = (messageToScVal(base).map() ?? []).map((e) =>
-      e.key().sym().toString() === "issued_at" ? new xdr.ScMapEntry({ key: e.key(), val: xdr.ScVal.scvString("now") }) : e,
+    const entries = mapEntries(messageToScVal(base)).map((e) =>
+      keyName(e) === "issued_at" ? new xdr.ScMapEntry({ key: e.key, val: xdr.ScVal.scvString("now") }) : e,
     );
     expect(() => messageFromScVal(xdr.ScVal.scvMap(entries))).toThrow(/issued_at must be a U64/);
   });
