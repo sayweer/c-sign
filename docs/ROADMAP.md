@@ -14,7 +14,11 @@ Everything in the first phase runs on Stellar **testnet**. No checkpoint depends
 - Offline test vectors in [vectors/c-sign-v1.json](../vectors/c-sign-v1.json): message encoding, entries and signature payloads, OpenZeppelin signing, the checks of SPEC §6 and the wallet's `domain`, following SPEC v0.0.2; cross-checked against the Rust XDR implementation.
 - Passkey sign-in demo, live at [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app) ([source](../apps/demo)), with a verification inspector and the key-rotation scene; its wallet flow is tested end to end on testnet with a software passkey.
 
-Still open from phase 1: the npm release, SEP-53 for `G…` accounts, the x402 adapter, the conformance suite in CI against testnet, the two-origin demo and its walkthrough video, the kit or SDK pull request, and the SEP pull request.
+- Integration layer (library 0.3.0, ready for npm): `MemoryNonceStore` and `createSignInMessage` for relying parties, `createMessageEntry`, browser and edge support without polyfills, stellar-sdk 17 with entries and keys accepted from 16 or 17 ([kit-compat](../packages/kit-compat) runs passkey-kit 0.14 and 0.20 on 16), `G…` accounts through the same `verifySignIn` with SEP-53, `simulateAuthorizedCall` to check a recovery key without submitting (K11 to K13), and a [quickstart](../examples/quickstart) that signs in a smart account and a `G…` key on testnet.
+- Testnet conformance in CI: the experiments run every week ([testnet.yml](../.github/workflows/testnet.yml)); the latency check passes (median 639 ms).
+- A mainnet deployment script for the reference verifier ([deploy-mainnet.sh](../scripts/deploy-mainnet.sh)), not run yet.
+
+Still open from phase 1: the npm publish, the x402 adapter, the two-origin demo and its walkthrough video, the kit or SDK pull request, and the SEP pull request.
 
 ## Phase 1: first 30 days
 
