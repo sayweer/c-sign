@@ -68,6 +68,24 @@ const result = await verifyMessage({ signature, rpcUrl, networkPassphrase, domai
 
 For auditors and services other than the one that issued the nonce. It shows that the account's rules accept the message, not when it was signed or whether it was used before. `domain: null` skips the domain check, for inspection tools only.
 
+## In the application
+
+The application turns the message from its server into an unsigned entry and hands it to the wallet:
+
+```ts
+import { createMessageEntry, encodeEntry, TESTNET } from "c-sign";
+
+const { entry, expirationLedger } = await createMessageEntry({
+  verifierId: TESTNET.verifierInstances[0],   // any instance running the reference Wasm
+  account,                                     // the user's C... address
+  message,                                     // from GET /challenge
+  rpcUrl: TESTNET.rpcUrl,
+});
+// Sign `entry` with the wallet (below), then POST encodeEntry(signedEntry) to /verify.
+```
+
+The signature stays valid for 720 ledgers (about an hour) unless you pass `validForLedgers`.
+
 ## In a wallet
 
 ```ts
