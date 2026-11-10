@@ -13,7 +13,9 @@ import {
   encodeEntry,
   entrySignaturePayload,
   signMessageWithPasskeyKit,
+  signPasskeyKitEntryWithEd25519,
   signPasskeyKitMessageWithEd25519,
+  simulateAuthorizedCall,
   verifyMessage,
   type EntryInput,
   type VerifyResult,
@@ -146,9 +148,9 @@ function signAdminEntry(entry: xdr.SorobanAuthorizationEntry, key: Keypair) {
 }
 
 const rows: { id: string; what: string; expected: string; observed: string; pass: boolean }[] = [];
-function record(id: string, what: string, expected: VerifyResult["status"], result: VerifyResult) {
-  const failed = result.steps.find((s) => s.status === "fail" || s.status === "error");
-  const observed = result.status === "valid" ? "valid" : `${result.status} (${failed?.id}: ${result.reason})`;
+function record(id: string, what: string, expected: VerifyResult["status"], result: Pick<VerifyResult, "status" | "reason"> & { steps?: VerifyResult["steps"] }) {
+  const failed = result.steps?.find((s) => s.status === "fail" || s.status === "error");
+  const observed = result.status === "valid" ? "valid" : `${result.status} (${failed ? `${failed.id}: ` : ""}${result.reason})`;
   const pass = result.status === expected;
   rows.push({ id, what, expected, observed, pass });
   console.log(`${pass ? "PASS" : "FAIL"}  ${id}  ${what}: ${observed}`);
@@ -189,6 +191,7 @@ function writeReport(wallets: Record<string, string>) {
     "",
     "- **K4, K9:** a recovery key limited to the wallet contract cannot sign a message. It stays a recovery key.",
     "- **K5, K10:** adding the verifier to a key's limits makes that key valid for every domain. Do not do this for a recovery key.",
+    "- **K11 to K13:** `simulateAuthorizedCall` checks a recovery key with a call it may make (here `add_signer` on its wallet), simulated in enforcing mode and never submitted; the signed entry expires two ledgers later.",
     "",
   ];
   writeFileSync(new URL("../../../docs/EXPERIMENTS-PASSKEY-KIT.md", import.meta.url), lines.join("\n"));
@@ -230,6 +233,20 @@ async function main() {
   record("K3", "0.14: unlimited Ed25519 owner, without the kit", "valid", await verify(signPasskeyKitMessageWithEd25519(await entryFor(walletEd, "K3"), [owner], networkPassphrase)));
   record("K4", "0.14: recovery key limited to the wallet contract", "invalid", await verify(signPasskeyKitMessageWithEd25519(await entryFor(walletEd, "K4"), [recovery], networkPassphrase)));
   record("K5", "0.14: key whose limits name the verifier", "valid", await verify(signPasskeyKitMessageWithEd25519(await entryFor(walletEd, "K5"), [agent], networkPassphrase)));
+  // "Does my recovery key still work?": a call the key may make, simulated and never submitted.
+  const canAddSigner = (key: Keypair) =>
+    simulateAuthorizedCall({
+      rpcUrl,
+      networkPassphrase,
+      account: walletEd,
+      contract: walletEd,
+      function: "add_signer",
+      args: [ed25519Signer(Keypair.random(), onlyContract(walletEd))],
+      sign: (entry) => signPasskeyKitEntryWithEd25519(entry, [key], networkPassphrase),
+    });
+  record("K11", "0.14: recovery key, add_signer on its wallet, simulated", "valid", await canAddSigner(recovery));
+  record("K12", "0.14: a key that is not a signer, same call", "invalid", await canAddSigner(stranger));
+  record("K13", "0.14: key limited to the verifier, same call", "invalid", await canAddSigner(agent));
   const kitEd = new Kit014({ ...config, walletWasmHash: WASM_014, rpId: RP_ID } as never);
   kitEd.wallet = new Client014({ contractId: walletEd, rpcUrl, networkPassphrase });
   record("K6", "0.14: Ed25519 owner through the kit", "valid", await verify(await viaKit(kitEd, await entryFor(walletEd, "K6"), new Ed25519Signer014(owner))));

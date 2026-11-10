@@ -1,7 +1,8 @@
 import { xdr } from "@stellar/stellar-sdk";
 import { compareBytes } from "../bytes.js";
 import { encodeEntry, entrySignaturePayload, toEntry, withSignature, type EntryInput } from "../entry.js";
-import { parseMessageEntry } from "../wallet.js";
+import { CSignError } from "../errors.js";
+import { isMessageEntry, parseMessageEntry } from "../wallet.js";
 import type { Ed25519Keypair } from "./openzeppelin.js";
 
 /**
@@ -56,6 +57,20 @@ export async function signMessageWithPasskeyKit<KitEntry, Signer>(
  */
 export function signPasskeyKitMessageWithEd25519(entry: EntryInput, keys: Ed25519Keypair[], networkPassphrase: string): xdr.SorobanAuthorizationEntry {
   parseMessageEntry(entry);
+  return signWithEd25519(entry, keys, networkPassphrase);
+}
+
+/**
+ * Signs any other authorization entry with Ed25519 signers of a passkey-kit wallet, for
+ * example the call {@link simulateAuthorizedCall} checks. Refuses a message entry: a message
+ * is signed only with {@link signPasskeyKitMessageWithEd25519}, after the wallet's checks.
+ */
+export function signPasskeyKitEntryWithEd25519(entry: EntryInput, keys: Ed25519Keypair[], networkPassphrase: string): xdr.SorobanAuthorizationEntry {
+  if (isMessageEntry(entry)) throw new CSignError("Refusing to sign a message entry as a generic authorization");
+  return signWithEd25519(entry, keys, networkPassphrase);
+}
+
+function signWithEd25519(entry: EntryInput, keys: Ed25519Keypair[], networkPassphrase: string): xdr.SorobanAuthorizationEntry {
   const payload = entrySignaturePayload(entry, networkPassphrase);
   const signatures = [...keys]
     .sort((a, b) => compareBytes(a.rawPublicKey(), b.rawPublicKey()))

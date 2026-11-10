@@ -138,6 +138,24 @@ const signature = encodeEntry(signed);
 
 Signing functions take a `Keypair` from any stellar-sdk version. Byte results (`entrySignaturePayload`, `ozAuthDigest`) are `Uint8Array`.
 
+## Check a recovery key
+
+`simulateAuthorizedCall` answers "does this key still work?" without submitting anything: it builds a call the key may make, has you sign it, and runs it in an enforcing simulation against the account's current rules.
+
+```ts
+import { simulateAuthorizedCall, signPasskeyKitEntryWithEd25519 } from "c-sign";
+
+const { status } = await simulateAuthorizedCall({
+  rpcUrl, networkPassphrase,
+  account: wallet,
+  contract: wallet, function: "add_signer", args: [newSignerScVal],   // a call the recovery key is limited to
+  sign: (entry) => signPasskeyKitEntryWithEd25519(entry, [recoveryKeypair], networkPassphrase),
+});
+// "valid": the key can authorize the call today
+```
+
+Keep recovery keys out of message signing: a key allowed to call the verifier can sign in to every site. This check leaves it limited to its own calls, and the signed entry expires two ledgers later.
+
 ## More
 
 - [Specification](https://github.com/sayweer/c-sign/blob/main/docs/SPEC.md) and [threat model](https://github.com/sayweer/c-sign/blob/main/docs/THREAT-MODEL.md)

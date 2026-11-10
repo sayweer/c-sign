@@ -11,6 +11,9 @@ Wasm: `fdefad64…` (0.14 line, the hash Eunomia deploys), `97ce0478…` (canoni
 | K3 | 0.14: unlimited Ed25519 owner, without the kit | valid | valid | yes |
 | K4 | 0.14: recovery key limited to the wallet contract | invalid | invalid (check_auth: Account rejected the signature: HostError: Error(Auth, InvalidAction)) | yes |
 | K5 | 0.14: key whose limits name the verifier | valid | valid | yes |
+| K11 | 0.14: recovery key, add_signer on its wallet, simulated | valid | valid | yes |
+| K12 | 0.14: a key that is not a signer, same call | invalid | invalid (The account rejected this key for the call: HostError: Error(Auth, InvalidAction)) | yes |
+| K13 | 0.14: key limited to the verifier, same call | invalid | invalid (The account rejected this key for the call: HostError: Error(Auth, InvalidAction)) | yes |
 | K6 | 0.14: Ed25519 owner through the kit | valid | valid | yes |
 | K7 | 0.20: passkey signs through the kit | valid | valid | yes |
 | K8 | 0.20: another passkey, not on the wallet | invalid | invalid (check_auth: Account rejected the signature: HostError: Error(Auth, InvalidAction)) | yes |
@@ -19,9 +22,10 @@ Wasm: `fdefad64…` (0.14 line, the hash Eunomia deploys), `97ce0478…` (canoni
 
 Wallets:
 
-- 0.14 passkey wallet: [`CA5V6J6H…`](https://stellar.expert/explorer/testnet/contract/CA5V6J6HCFDZP7RNRDUEPEGTPJSKBZNYUAGCWOHEMJNFDCWNKU2QYDWZ)
-- 0.14 Ed25519 wallet: [`CCORSNAR…`](https://stellar.expert/explorer/testnet/contract/CCORSNARX4Y3JAH4AED6OFFMF4DTY7JPZMNNEQ37VOGB4OSJDO6FPOSL)
-- 0.20 passkey wallet: [`CBAKAFOQ…`](https://stellar.expert/explorer/testnet/contract/CBAKAFOQUE74M7WX6U6QEDK7RBQRYKOT2V6HJT64ANVRPANRAXL4QXLD)
+- 0.14 passkey wallet: [`CDFWMDXT…`](https://stellar.expert/explorer/testnet/contract/CDFWMDXTNODDO5CLK4CYWLQNGYKBDTN5VNTSP6ENMGMOIGEELURUM3BS)
+- 0.14 Ed25519 wallet: [`CCUWVCQF…`](https://stellar.expert/explorer/testnet/contract/CCUWVCQFSUKUJRW27ATVTE3RD22AMVOFGY774WWYIEQNBYE2VMTC2J34)
+- 0.20 passkey wallet: [`CB2WON7J…`](https://stellar.expert/explorer/testnet/contract/CB2WON7J67HX5SS7XYGA2ZGL235Y47VI7ARALAG4AUMXBWIKVD7CATII)
 
 - **K4, K9:** a recovery key limited to the wallet contract cannot sign a message. It stays a recovery key.
 - **K5, K10:** adding the verifier to a key's limits makes that key valid for every domain. Do not do this for a recovery key.
+- **K11 to K13:** `simulateAuthorizedCall` checks a recovery key with a call it may make (here `add_signer` on its wallet), simulated in enforcing mode and never submitted; the signed entry expires two ledgers later.
