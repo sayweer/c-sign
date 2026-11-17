@@ -1,6 +1,6 @@
 # C-Sign: signed messages for Stellar contract accounts
 
-**Status:** draft specification, reference verifier deployed on testnet, TypeScript library, [25 testnet experiments](docs/EXPERIMENTS.md), a [threat model](docs/THREAT-MODEL.md) and a passkey sign-in demo.
+**Status:** draft specification ([SPEC v0.0.2](docs/SPEC.md)), reference verifier deployed on testnet (mainnet script ready, not run yet), TypeScript library 0.3.0 for `C…` and `G…` sign-in (npm release pending), [25 testnet experiments](docs/EXPERIMENTS.md) rerun weekly in CI, a [threat model](docs/THREAT-MODEL.md), an [end-to-end quickstart](examples/quickstart) and a passkey sign-in demo. The library has not been audited.
 
 **Live demo: [c-sign-demo.vercel.app](https://c-sign-demo.vercel.app)** (testnet)
 
@@ -41,6 +41,15 @@ The fake verifier skips `require_auth` and still returns `AuthOk`; it shows that
 **Mainnet:** not deployed yet. `IDENTITY=<funded identity> scripts/deploy-mainnet.sh` deploys two instances of the reference verifier (no fixtures), checks the built and the deployed hashes, extends TTLs and writes `deployments/mainnet.json`. It never creates or funds an identity and asks for confirmation before spending XLM. Any instance running the pinned hash is as good as these two.
 
 ## Quickstart
+
+The package is not on npm yet; 0.3.0 is ready and will be published as `c-sign`. Until then, build it from this repository:
+
+```sh
+git clone https://github.com/sayweer/c-sign && cd c-sign
+pnpm install && pnpm --filter c-sign build
+```
+
+Once it is published:
 
 ```sh
 npm install c-sign
